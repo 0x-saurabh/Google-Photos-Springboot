@@ -1,0 +1,30 @@
+﻿# Dependencies
+client/node_modules/
+
+# Next.js build output
+client/.next/
+client/out/
+
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+client/.env*
+!client/.env.example
+**/application-local.properties
+**/application-local.yml
+
+# Java / Spring Boot build files
+**/target/
+*.class
+
+# IDE settings
+.idea/
+.vscode/
+
+# Old frontend Git backup
+client/.git-backup/
+
+# OS files
+.DS_Store
+Thumbs.db
