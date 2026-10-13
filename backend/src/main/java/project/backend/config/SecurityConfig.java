@@ -48,7 +48,7 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
 
                         // Public authentication endpoints
-                        .requestMatchers("/api/auth/register", "api/auth/login","api/auth/refresh").permitAll()
+                        .requestMatchers("/api/auth/register", "/api/auth/login","/api/auth/refresh").permitAll()
                         .requestMatchers("/actuator/health").permitAll()
 
 
