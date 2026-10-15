@@ -1,5 +1,3 @@
-"use client";
-
 import { PhotoLibraryView } from "@/components/photos/photo-library-view";
 
 export default function PhotosPage() {

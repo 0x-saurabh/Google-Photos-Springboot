@@ -14,6 +14,20 @@ export type AuthResponse = {
   user: User;
 };
 
+type AuthResponsePayload = {
+  access_token: string;
+  refresh_token: string;
+  user: User;
+};
+
+function normalizeAuthResponse(payload: AuthResponsePayload): AuthResponse {
+  return {
+    accessToken: payload.access_token,
+    refreshToken: payload.refresh_token,
+    user: payload.user,
+  };
+}
+
 export type PhotoStatus = "ACTIVE" | "ARCHIVE" | "TRASH";
 
 export type AiTransformType =
@@ -135,11 +149,23 @@ async function request<T>(
 }
 
 export const api = {
-  register: (body: { email: string; password: string; displayName: string }) =>
-    request<AuthResponse>("/auth/register", { method: "POST", body: JSON.stringify(body) }, false),
+  register: async (body: { email: string; password: string; displayName: string }) =>
+    normalizeAuthResponse(
+      await request<AuthResponsePayload>(
+        "/auth/register",
+        { method: "POST", body: JSON.stringify(body) },
+        false,
+      ),
+    ),
 
-  login: (body: { email: string; password: string }) =>
-    request<AuthResponse>("/auth/login", { method: "POST", body: JSON.stringify(body) }, false),
+  login: async (body: { email: string; password: string }) =>
+    normalizeAuthResponse(
+      await request<AuthResponsePayload>(
+        "/auth/login",
+        { method: "POST", body: JSON.stringify(body) },
+        false,
+      ),
+    ),
 
   logout: () => {
     const refreshToken = useAuthStore.getState().refreshToken;

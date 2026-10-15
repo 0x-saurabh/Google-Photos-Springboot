@@ -95,12 +95,19 @@ function Carousel({
 
   React.useEffect(() => {
     if (!api) return
-    onSelect(api)
+    let disposed = false
+    const updateSelection = () => {
+      if (!disposed) onSelect(api)
+    }
+
     api.on("reInit", onSelect)
     api.on("select", onSelect)
+    queueMicrotask(updateSelection)
 
     return () => {
-      api?.off("select", onSelect)
+      disposed = true
+      api.off("reInit", onSelect)
+      api.off("select", onSelect)
     }
   }, [api, onSelect])
 
