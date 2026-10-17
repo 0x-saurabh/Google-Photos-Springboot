@@ -80,6 +80,10 @@ public class Photo {
     @Column(name = "ai_transform_type", length = 50)
     private AiTransformType aiTransformType;
 
+    /** ImageKit transformation chain that produced this photo from its parent, if any. */
+    @Column(name = "edit_chain", columnDefinition = "TEXT")
+    private String editChain;
+
 
 
     @PrePersist

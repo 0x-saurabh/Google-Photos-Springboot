@@ -9,10 +9,12 @@ import {
   ArrowLeft,
   ChevronLeft,
   ChevronRight,
+  Download,
   ExternalLink,
   FolderPlus,
   Info,
   RotateCcw,
+  SlidersHorizontal,
   Trash2,
   WandSparkles,
 } from "lucide-react";
@@ -44,6 +46,7 @@ import {
   useRestorePhotos,
   useTrashPhotos,
 } from "@/hooks/use-photos";
+import { downloadUrl } from "@/lib/download";
 import { cn } from "@/lib/utils";
 import { useViewerStore } from "@/stores/viewer-store";
 
@@ -83,6 +86,9 @@ export function PhotoViewer({ photoId, context }: PhotoViewerProps) {
   const busy = archive.isPending || trash.isPending || restore.isPending || deleteForever.isPending;
 
   const backHref = contextBackHref(context);
+  const viewerHref = photoHref(photoId, context);
+  const editHref = viewerHref.replace(`/photos/${photoId}`, `/photos/${photoId}/edit`);
+  const canEdit = !!photo && photo.status !== "TRASH";
 
   const goTo = useCallback(
     (id: string) => router.replace(photoHref(id, context)),
@@ -114,10 +120,11 @@ export function PhotoViewer({ photoId, context }: PhotoViewerProps) {
         else router.push(backHref);
       }
       if (event.key.toLowerCase() === "i") toggleInfo();
+      if (event.key.toLowerCase() === "e" && canEdit) router.push(editHref);
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [backHref, goTo, infoOpen, isMobile, next, previous, router, setInfoOpen, toggleInfo]);
+  }, [backHref, canEdit, editHref, goTo, infoOpen, isMobile, next, previous, router, setInfoOpen, toggleInfo]);
 
   // A preview belongs to one photo; drop it when leaving that photo.
   useEffect(() => {
@@ -153,7 +160,7 @@ export function PhotoViewer({ photoId, context }: PhotoViewerProps) {
     };
   }, []);
 
-  const panel = photo ? <PhotoDetailsPanel photo={photo} /> : null;
+  const panel = photo ? <PhotoDetailsPanel photo={photo} editHref={canEdit ? editHref : undefined} /> : null;
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-stage text-stage-foreground" role="dialog" aria-modal="true" aria-label="Photo viewer">
@@ -252,7 +259,7 @@ export function PhotoViewer({ photoId, context }: PhotoViewerProps) {
               <TooltipContent>Open original</TooltipContent>
             </Tooltip>
           )}
-          {photo && photo.status !== "TRASH" && (
+          {photo && (
             <Tooltip>
               <TooltipTrigger
                 render={
@@ -260,15 +267,51 @@ export function PhotoViewer({ photoId, context }: PhotoViewerProps) {
                     variant="ghost"
                     size="icon-sm"
                     className={stageButton}
-                    aria-label="Edit with AI"
-                    onClick={openAiEditor}
+                    aria-label="Download original"
+                    onClick={() => downloadUrl(photo.url, photo.fileName)}
                   />
                 }
               >
-                <WandSparkles />
+                <Download />
               </TooltipTrigger>
-              <TooltipContent>Edit with AI</TooltipContent>
+              <TooltipContent>Download original</TooltipContent>
             </Tooltip>
+          )}
+          {photo && photo.status !== "TRASH" && (
+            <>
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      className={stageButton}
+                      aria-label="Quick AI edit"
+                      onClick={openAiEditor}
+                    />
+                  }
+                >
+                  <WandSparkles />
+                </TooltipTrigger>
+                <TooltipContent>Quick AI edit</TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <Link
+                      href={editHref}
+                      aria-label="Open editor"
+                      className={buttonVariants({ variant: "ghost", size: "icon-sm", className: stageButton })}
+                    />
+                  }
+                >
+                  <SlidersHorizontal />
+                </TooltipTrigger>
+                <TooltipContent>
+                  Edit <Kbd>E</Kbd>
+                </TooltipContent>
+              </Tooltip>
+            </>
           )}
           <Tooltip>
             <TooltipTrigger

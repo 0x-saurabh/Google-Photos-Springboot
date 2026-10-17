@@ -20,7 +20,8 @@ public record PhotoResponse(
         Instant createdAt,
         Instant deletedAt,
         UUID parentPhotoId,
-        AiTransformType aiTransformType
+        AiTransformType aiTransformType,
+        String editChain
 )
 {
 

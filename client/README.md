@@ -32,8 +32,9 @@ Other scripts: `pnpm lint`, `pnpm build`, `pnpm start`.
 | `/` | Public landing page (features, how it works, workspace preview) |
 | `/login`, `/register` | Authentication; signed-in users are redirected to the workspace |
 | `/dashboard` | Overview: recently added photos, albums, real library usage, quick actions |
-| `/photos` | Main library with drag-and-drop upload, filtering, selection and bulk actions |
-| `/photos/[id]` | Full-screen viewer with prev/next, details panel and ImageKit AI edits |
+| `/photos` | Main library with drag-and-drop upload, server-side search and sorting, selection and bulk actions |
+| `/photos/[id]` | Full-screen viewer with prev/next, details, version lineage, download and quick AI edits |
+| `/photos/[id]/edit` | Editor: crop, aspect ratio, resize, rotate, flip, effects, AI steps, format/quality, before/after compare, undo/redo |
 | `/albums`, `/albums/[id]` | Album list and detail with rename, cover, add/remove photos, delete |
 | `/archive`, `/trash` | Archived and trashed photos with restore / permanent delete |
 
@@ -47,14 +48,15 @@ components/
   brand/          Pixora mark and wordmark
   landing/        public landing page sections
   layout/         app shell, sidebar, account menu, page header
-  photos/         grid, tiles, viewer, upload queue, drop zone, bulk toolbar
+  photos/         grid, tiles, viewer, upload queue, drop zone, bulk toolbar, versions
+  editor/         editing workspace: canvas, compare slider, crop overlay, step list, tools
   albums/         album grid, dialogs, photo picker
   dashboard/      overview widgets
   library/        storage summary, ImageKit import
   ui/             shadcn/ui primitives plus small shared pieces
 hooks/            TanStack Query hooks and UI hooks
-lib/              API client (with token refresh), ImageKit URL helpers, formatting
-stores/           Zustand stores: auth (persisted), selection, upload queue, viewer
+lib/              API client (with token refresh), ImageKit URL helpers, edit step catalog, formatting
+stores/           Zustand stores: auth (persisted), selection, upload queue, viewer, editor pipeline
 ```
 
 ## Sessions
@@ -64,3 +66,9 @@ Access tokens are short-lived; `lib/api.ts` decodes the `exp` claim and refreshe
 ## Images
 
 Thumbnails and album covers are requested from ImageKit with a square smart-crop URL transformation (`lib/imagekit.ts`). Full-size images in the viewer use the original URL. No ImageKit credentials live in the client; uploads go through the backend.
+
+## Editor
+
+The editor builds an ordered pipeline of steps (`lib/edit-steps.ts`) and sends it to `POST /photos/{id}/edits/preview`, which validates every step and returns an ImageKit URL for the chained transformation. Non-AI pipelines preview automatically; pipelines with AI steps wait for an explicit "Generate preview" because each render spends ImageKit AI credits. `POST /photos/{id}/edits/apply` downloads the rendition and stores it as a new photo with `parentPhotoId` and `editChain` set, so the source is never modified. `GET /photos/{id}/versions` lists a photo's parent and derived copies. Downloads use ImageKit's `ik-attachment=true` flag.
+
+A manual crop always runs first and is expressed in original-image pixels, which is what lets the on-canvas crop overlay stay exact; every other step can be reordered.

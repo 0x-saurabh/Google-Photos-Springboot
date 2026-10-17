@@ -112,6 +112,7 @@ public class AlbumService {
     @Transactional
     public void deleteAlbum(User user, UUID albumId) {
         Album album = getOwnedAlbum(user, albumId);
+        albumPhotoRepository.deleteByAlbumId(album.getId());
         albumRepository.delete(album);
     }
 
@@ -166,6 +167,10 @@ public class AlbumService {
 
     private AlbumResponse toAlbumResponse(Album album, long photoCount) {
         Photo coverPhoto = album.getCoverPhoto();
+        if (coverPhoto != null && coverPhoto.getStatus() != PhotoStatus.ACTIVE) {
+            // An archived or trashed cover shouldn't leak into the album grid.
+            coverPhoto = null;
+        }
         return new AlbumResponse(
                 album.getId(),
                 album.getTitle(),

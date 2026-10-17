@@ -15,6 +15,11 @@ import project.backend.domain.PhotoStatus;
 public interface PhotoRepository extends JpaRepository<Photo, UUID> {
     Page<Photo> findByUserIdAndStatus(UUID userId, PhotoStatus status, Pageable pageable);
 
+    Page<Photo> findByUserIdAndStatusAndFileNameContainingIgnoreCase(
+            UUID userId, PhotoStatus status, String fileName, Pageable pageable);
+
+    List<Photo> findByParentPhotoIdAndUserIdOrderByCreatedAtDesc(UUID parentPhotoId, UUID userId);
+
     List<Photo> findByIdInAndUserId(List<UUID> ids, UUID userId);
 
     Optional<Photo> findByIdAndUserId(UUID id, UUID userId);

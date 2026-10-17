@@ -19,9 +19,12 @@ import project.backend.domain.User;
 import project.backend.dto.CreatePhotoRequest;
 import project.backend.dto.PageResponse;
 import project.backend.dto.PhotoResponse;
+import project.backend.dto.PhotoVersionsResponse;
 import project.backend.exception.BadRequestException;
 import project.backend.exception.ResourceConflictException;
 import project.backend.exception.ResourceNotFoundException;
+import project.backend.repository.AlbumPhotoRepository;
+import project.backend.repository.AlbumRepository;
 import project.backend.repository.PhotoRepository;
 
 @Service
@@ -35,17 +38,56 @@ public class PhotoService {
             "image/heif");
 
     private final PhotoRepository photoRepository;
+    private final AlbumPhotoRepository albumPhotoRepository;
+    private final AlbumRepository albumRepository;
     private final ImageKitService imageKitService;
 
-    public PhotoService(PhotoRepository photoRepository, ImageKitService imageKitService) {
+    public PhotoService(
+            PhotoRepository photoRepository,
+            AlbumPhotoRepository albumPhotoRepository,
+            AlbumRepository albumRepository,
+            ImageKitService imageKitService) {
         this.photoRepository = photoRepository;
+        this.albumPhotoRepository = albumPhotoRepository;
+        this.albumRepository = albumRepository;
         this.imageKitService = imageKitService;
     }
 
     @Transactional(readOnly = true)
     public PageResponse<PhotoResponse> listPhotos(User user, PhotoStatus status, Pageable pageable) {
-        Page<Photo> page = photoRepository.findByUserIdAndStatus(user.getId(), status, pageable);
+        return listPhotos(user, status, null, pageable);
+    }
+
+    /** Lists photos in one status, optionally narrowed to file names containing {@code query}. */
+    @Transactional(readOnly = true)
+    public PageResponse<PhotoResponse> listPhotos(User user, PhotoStatus status, String query, Pageable pageable) {
+        String trimmed = query == null ? "" : query.trim();
+        Page<Photo> page = trimmed.isEmpty()
+                ? photoRepository.findByUserIdAndStatus(user.getId(), status, pageable)
+                : photoRepository.findByUserIdAndStatusAndFileNameContainingIgnoreCase(
+                        user.getId(), status, trimmed, pageable);
         return toPageResponse(page);
+    }
+
+    /** The photo this one was derived from (when still owned) and everything derived from it. */
+    @Transactional(readOnly = true)
+    public PhotoVersionsResponse getVersions(User user, UUID photoId) {
+        Photo photo = photoRepository.findByIdAndUserId(photoId, user.getId())
+                .orElseThrow(() -> new ResourceNotFoundException("Photo not found"));
+
+        PhotoResponse parent = photo.getParentPhotoId() == null
+                ? null
+                : photoRepository.findByIdAndUserId(photo.getParentPhotoId(), user.getId())
+                        .map(this::toPhotoResponse)
+                        .orElse(null);
+
+        List<PhotoResponse> derived = photoRepository
+                .findByParentPhotoIdAndUserIdOrderByCreatedAtDesc(photoId, user.getId())
+                .stream()
+                .map(this::toPhotoResponse)
+                .toList();
+
+        return new PhotoVersionsResponse(parent, derived);
     }
 
     @Transactional(readOnly = true)
@@ -61,6 +103,16 @@ public class PhotoService {
             Photo sourcePhoto,
             FileUploadResponse uploadResponse,
             AiTransformType transformType) {
+        return createDerivedPhoto(user, sourcePhoto, uploadResponse, transformType, null);
+    }
+
+    @Transactional
+    public PhotoResponse createDerivedPhoto(
+            User user,
+            Photo sourcePhoto,
+            FileUploadResponse uploadResponse,
+            AiTransformType transformType,
+            String editChain) {
         String fileId = uploadResponse.fileId()
                 .orElseThrow(() -> new BadRequestException("ImageKit did not return a file id"));
         String url = uploadResponse.url()
@@ -75,13 +127,14 @@ public class PhotoService {
                 .fileName(uploadResponse.name().orElse(sourcePhoto.getFileName()))
                 .url(url)
                 .thumbnailUrl(thumbnailUrl)
-                .mimeType(uploadResponse.fileType().orElse(sourcePhoto.getMimeType()))
+                .mimeType(resolveMimeType(uploadResponse, sourcePhoto))
                 .sizeBytes(uploadResponse.size().map(Double::longValue).orElse(0L))
                 .width(uploadResponse.width().map(Double::intValue).orElse(sourcePhoto.getWidth()))
                 .height(uploadResponse.height().map(Double::intValue).orElse(sourcePhoto.getHeight()))
                 .status(PhotoStatus.ACTIVE)
                 .parentPhotoId(sourcePhoto.getId())
                 .aiTransformType(transformType)
+                .editChain(editChain)
                 .build();
 
         return toPhotoResponse(photoRepository.save(photo));
@@ -193,8 +246,16 @@ public class PhotoService {
             if (photo.getStatus() != PhotoStatus.TRASH) {
                 throw new BadRequestException("Only photos in trash can be permanently deleted");
             }
-            imageKitService.deleteFile(photo.getImagekitFileId());
+        }
+
+        for (Photo photo : photos) {
+            // Album rows reference the photo, so they go first or the delete fails on the FK.
+            albumRepository.clearCoverPhoto(photo.getId());
+            albumPhotoRepository.deleteByPhotoId(photo.getId());
             photoRepository.delete(photo);
+            photoRepository.flush();
+            // Remote delete last: if ImageKit refuses, the transaction rolls back and nothing is lost.
+            imageKitService.deleteFile(photo.getImagekitFileId());
         }
     }
 
@@ -239,6 +300,30 @@ public class PhotoService {
         }
     }
 
+    /**
+     * ImageKit reports a category ("image") rather than a MIME type for uploads
+     * made from bytes, so derive the type from the stored file name instead.
+     */
+    private static String resolveMimeType(FileUploadResponse uploadResponse, Photo sourcePhoto) {
+        String reported = uploadResponse.fileType().orElse(null);
+        if (reported != null && reported.contains("/")) {
+            return reported;
+        }
+        String name = uploadResponse.name().orElse("").toLowerCase();
+        int dot = name.lastIndexOf('.');
+        String extension = dot >= 0 ? name.substring(dot + 1) : "";
+        return switch (extension) {
+            case "jpg", "jpeg" -> "image/jpeg";
+            case "png" -> "image/png";
+            case "webp" -> "image/webp";
+            case "avif" -> "image/avif";
+            case "gif" -> "image/gif";
+            case "heic" -> "image/heic";
+            case "heif" -> "image/heif";
+            default -> sourcePhoto.getMimeType();
+        };
+    }
+
     private PageResponse<PhotoResponse> toPageResponse(Page<Photo> page) {
         return new PageResponse<>(
                 page.getContent().stream().map(this::toPhotoResponse).toList(),
@@ -264,7 +349,8 @@ public class PhotoService {
                 photo.getCreatedAt(),
                 photo.getDeletedAt(),
                 photo.getParentPhotoId(),
-                photo.getAiTransformType());
+                photo.getAiTransformType(),
+                photo.getEditChain());
     }
 
 }

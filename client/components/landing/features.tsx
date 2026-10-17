@@ -28,8 +28,8 @@ const features = [
   },
   {
     icon: WandSparkles,
-    title: "AI edits, saved as new photos",
-    body: "Remove backgrounds, upscale, retouch or smart-crop using ImageKit transformations. Originals are never overwritten.",
+    title: "An editor that never overwrites",
+    body: "Crop, resize, rotate, add effects and chain AI steps such as background removal or upscaling, with a before/after preview. Every result is saved as a new photo.",
   },
   {
     icon: Lock,
@@ -45,7 +45,7 @@ const features = [
 
 const planned = [
   { icon: Star, title: "Favorites" },
-  { icon: Search, title: "Search and filters" },
+  { icon: Search, title: "Search inside albums" },
 ];
 
 export function Features() {
