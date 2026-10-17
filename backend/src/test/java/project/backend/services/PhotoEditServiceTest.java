@@ -19,7 +19,7 @@ import project.backend.exception.BadRequestException;
 class PhotoEditServiceTest {
 
     private final PhotoEditService service = new PhotoEditService(
-            null, null, null, new AiTransformService(null, null, null));
+            null, null, null, new AiTransformService(null, null, null, null), null);
 
     private static Photo photo(Integer width, Integer height) {
         return Photo.builder().width(width).height(height).fileName("sunset.jpg").build();

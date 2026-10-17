@@ -3,6 +3,7 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import type { AuthResponse, User } from "@/lib/api";
+import { useAlbumLockStore } from "@/stores/album-lock-store";
 
 /**
  * Stores the logged-in user + tokens.
@@ -42,13 +43,16 @@ export const useAuthStore = create<AuthState>()(
           user: auth.user,
           signedOut: false,
         }),
-      clearAuth: (options) =>
+      clearAuth: (options) => {
+        // Signing out must also forget every album opened with a PIN.
+        useAlbumLockStore.getState().lockAll();
         set({
           accessToken: null,
           refreshToken: null,
           user: null,
           signedOut: options?.signedOut ?? false,
-        }),
+        });
+      },
       setReady: () => set({ isReady: true }),
     }),
     {

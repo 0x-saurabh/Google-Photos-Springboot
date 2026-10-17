@@ -33,8 +33,8 @@ const features = [
   },
   {
     icon: Lock,
-    title: "Private by default",
-    body: "Every request is authenticated with short-lived tokens issued by the Spring Boot backend. Only you can see your library.",
+    title: "Private albums",
+    body: "Lock any album with a PIN. Its photos drop out of the library, search and dashboard until you unlock it, and the lock expires on its own.",
   },
   {
     icon: Zap,

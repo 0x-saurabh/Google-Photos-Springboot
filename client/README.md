@@ -35,7 +35,7 @@ Other scripts: `pnpm lint`, `pnpm build`, `pnpm start`.
 | `/photos` | Main library with drag-and-drop upload, server-side search and sorting, selection and bulk actions |
 | `/photos/[id]` | Full-screen viewer with prev/next, details, version lineage, download and quick AI edits |
 | `/photos/[id]/edit` | Editor: crop, aspect ratio, resize, rotate, flip, effects, AI steps, format/quality, before/after compare, undo/redo |
-| `/albums`, `/albums/[id]` | Album list and detail with rename, cover, add/remove photos, delete |
+| `/albums`, `/albums/[id]` | Album list and detail with rename, cover, add/remove photos, delete, PIN lock |
 | `/archive`, `/trash` | Archived and trashed photos with restore / permanent delete |
 
 Protected routes are guarded on the client (`components/auth/auth-guard.tsx`). Unauthenticated visitors are sent to `/login?next=…` and return to the page they asked for after signing in.
@@ -72,3 +72,7 @@ Thumbnails and album covers are requested from ImageKit with a square smart-crop
 The editor builds an ordered pipeline of steps (`lib/edit-steps.ts`) and sends it to `POST /photos/{id}/edits/preview`, which validates every step and returns an ImageKit URL for the chained transformation. Non-AI pipelines preview automatically; pipelines with AI steps wait for an explicit "Generate preview" because each render spends ImageKit AI credits. `POST /photos/{id}/edits/apply` downloads the rendition and stores it as a new photo with `parentPhotoId` and `editChain` set, so the source is never modified. `GET /photos/{id}/versions` lists a photo's parent and derived copies. Downloads use ImageKit's `ik-attachment=true` flag.
 
 A manual crop always runs first and is expressed in original-image pixels, which is what lets the on-canvas crop overlay stay exact; every other step can be reordered.
+
+## Private albums
+
+An album can be locked with a 4 to 6 digit PIN from its options menu. While locked, the album's cover is withheld and its photos leave the library, search, dashboard and the photo viewer (opening one redirects to the album's PIN screen). Entering the PIN returns a short-lived album token that the client keeps in memory only and sends in the `X-Album-Token` header; it expires after ten minutes, on reload, and on sign-out. Five wrong PINs in a row pause PIN entry for five minutes. The PIN is stored hashed on the backend; a forgotten PIN is removed with the account password. Edited copies of a private photo join the same locked album so they stay private.

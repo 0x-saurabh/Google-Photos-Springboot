@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { Lock, LockOpen } from "lucide-react";
 import { AlbumCoverImage } from "@/components/albums/album-cover-image";
 import type { Album } from "@/lib/api";
 import { formatRelative } from "@/lib/format-date";
@@ -21,11 +22,27 @@ export function AlbumCard({ album }: { album: Album }) {
       className="group block rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
     >
       <div className="relative aspect-[4/3] overflow-hidden rounded-xl bg-muted shadow-photo transition-shadow duration-200 group-hover:shadow-float">
-        <AlbumCoverImage
-          src={album.coverThumbnailUrl}
-          sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 20vw"
-          className="transition-transform duration-500 ease-out group-hover:scale-[1.03]"
-        />
+        {album.locked && !album.unlocked ? (
+          <div className="flex h-full flex-col items-center justify-center gap-1.5 bg-gradient-to-b from-muted to-muted/60 text-muted-foreground">
+            <Lock className="size-7 opacity-70" aria-hidden="true" />
+            <span className="text-[11px]">Locked</span>
+          </div>
+        ) : (
+          <AlbumCoverImage
+            src={album.coverThumbnailUrl}
+            sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 20vw"
+            className="transition-transform duration-500 ease-out group-hover:scale-[1.03]"
+          />
+        )}
+        {album.locked && (
+          <span
+            className="absolute right-2 top-2 inline-flex size-6 items-center justify-center rounded-full bg-background/85 text-foreground shadow-sm backdrop-blur"
+            title={album.unlocked ? "Private album, unlocked" : "Private album"}
+          >
+            {album.unlocked ? <LockOpen className="size-3.5" aria-hidden="true" /> : <Lock className="size-3.5" aria-hidden="true" />}
+            <span className="sr-only">{album.unlocked ? "Private, unlocked" : "Private"}</span>
+          </span>
+        )}
       </div>
       <div className="mt-2.5 px-0.5">
         <h3 className="truncate text-sm font-medium text-foreground">{album.title}</h3>

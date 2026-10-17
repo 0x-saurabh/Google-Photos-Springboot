@@ -19,13 +19,20 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import jakarta.validation.Valid;
+import project.backend.domain.Album;
 import project.backend.domain.User;
 import project.backend.dto.AddPhotosToAlbumRequest;
+import project.backend.dto.AlbumLockRemoveRequest;
+import project.backend.dto.AlbumLockRequest;
+import project.backend.dto.AlbumPinChangeRequest;
 import project.backend.dto.AlbumResponse;
+import project.backend.dto.AlbumUnlockRequest;
+import project.backend.dto.AlbumUnlockResponse;
 import project.backend.dto.CreateAlbumRequest;
 import project.backend.dto.PageResponse;
 import project.backend.dto.PhotoResponse;
 import project.backend.dto.UpdateAlbumRequest;
+import project.backend.services.AlbumLockService;
 import project.backend.services.AlbumService;
 import project.backend.services.UserService;
 
@@ -35,10 +42,12 @@ public class AlbumController {
 
     private final AlbumService albumService;
     private final UserService userService;
+    private final AlbumLockService albumLockService;
 
-    public AlbumController(AlbumService albumService, UserService userService) {
+    public AlbumController(AlbumService albumService, UserService userService, AlbumLockService albumLockService) {
         this.albumService = albumService;
         this.userService = userService;
+        this.albumLockService = albumLockService;
     }
 
     @GetMapping
@@ -100,6 +109,51 @@ public class AlbumController {
         User user = userService.getByEmail(userDetails.getUsername());
         albumService.deleteAlbum(user, id);
         return ResponseEntity.noContent().build();
+    }
+
+    /** Protects the album with a PIN. Photos inside disappear from the library until unlocked. */
+    @PostMapping("/{id}/lock")
+    public ResponseEntity<AlbumResponse> lockAlbum(
+            @AuthenticationPrincipal UserDetails userDetails,
+            @PathVariable UUID id,
+            @RequestBody AlbumLockRequest request
+    ) {
+        User user = userService.getByEmail(userDetails.getUsername());
+        Album album = albumLockService.lock(user, id, request.pin());
+        return ResponseEntity.ok(albumService.getAlbum(user, album.getId()));
+    }
+
+    @PatchMapping("/{id}/lock")
+    public ResponseEntity<Void> changeAlbumPin(
+            @AuthenticationPrincipal UserDetails userDetails,
+            @PathVariable UUID id,
+            @RequestBody AlbumPinChangeRequest request
+    ) {
+        User user = userService.getByEmail(userDetails.getUsername());
+        albumLockService.changePin(user, id, request.currentPin(), request.newPin());
+        return ResponseEntity.noContent().build();
+    }
+
+    /** POST rather than DELETE because the proof (PIN or password) travels in the body. */
+    @PostMapping("/{id}/lock/remove")
+    public ResponseEntity<AlbumResponse> removeAlbumLock(
+            @AuthenticationPrincipal UserDetails userDetails,
+            @PathVariable UUID id,
+            @RequestBody AlbumLockRemoveRequest request
+    ) {
+        User user = userService.getByEmail(userDetails.getUsername());
+        Album album = albumLockService.removeLock(user, id, request.pin(), request.password());
+        return ResponseEntity.ok(albumService.getAlbum(user, album.getId()));
+    }
+
+    @PostMapping("/{id}/unlock")
+    public ResponseEntity<AlbumUnlockResponse> unlockAlbum(
+            @AuthenticationPrincipal UserDetails userDetails,
+            @PathVariable UUID id,
+            @RequestBody AlbumUnlockRequest request
+    ) {
+        User user = userService.getByEmail(userDetails.getUsername());
+        return ResponseEntity.ok(albumLockService.unlock(user, id, request.pin()));
     }
 
     @PostMapping("/{id}/photos")

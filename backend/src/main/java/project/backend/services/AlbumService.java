@@ -32,35 +32,40 @@ public class AlbumService {
     private final AlbumPhotoRepository albumPhotoRepository;
     private final PhotoRepository photoRepository;
     private final PhotoService photoService;
+    private final AlbumAccessService albumAccessService;
 
     public AlbumService(
             AlbumRepository albumRepository,
             AlbumPhotoRepository albumPhotoRepository,
             PhotoRepository photoRepository,
-            PhotoService photoService
+            PhotoService photoService,
+            AlbumAccessService albumAccessService
     ) {
         this.albumRepository = albumRepository;
         this.albumPhotoRepository = albumPhotoRepository;
         this.photoRepository = photoRepository;
         this.photoService = photoService;
+        this.albumAccessService = albumAccessService;
     }
 
     @Transactional(readOnly = true)
     public List<AlbumResponse> listAlbums(User user) {
         return albumRepository.findByUserIdOrderByUpdatedAtDesc(user.getId()).stream()
-                .map(album -> toAlbumResponse(album, albumRepository.countPhotosByAlbumId(album.getId())))
+                .map(album -> toAlbumResponse(user, album, albumRepository.countPhotosByAlbumId(album.getId())))
                 .toList();
     }
 
+    /** Album metadata is readable while locked (title, count, lock state); the cover is withheld. */
     @Transactional(readOnly = true)
     public AlbumResponse getAlbum(User user, UUID albumId) {
         Album album = getOwnedAlbum(user, albumId);
-        return toAlbumResponse(album, albumRepository.countPhotosByAlbumId(album.getId()));
+        return toAlbumResponse(user, album, albumRepository.countPhotosByAlbumId(album.getId()));
     }
 
     @Transactional(readOnly = true)
     public PageResponse<PhotoResponse> getAlbumPhotos(User user, UUID albumId, Pageable pageable) {
-        getOwnedAlbum(user, albumId);
+        Album album = getOwnedAlbum(user, albumId);
+        albumAccessService.requireUnlocked(user, album);
         Page<AlbumPhoto> page = albumPhotoRepository.findByAlbumIdAndUserId(albumId, user.getId(), pageable);
         List<PhotoResponse> photos = page.getContent().stream()
                 .map(AlbumPhoto::getPhoto)
@@ -83,12 +88,13 @@ public class AlbumService {
                 .user(user)
                 .title(request.title().trim())
                 .build();
-        return toAlbumResponse(albumRepository.save(album), 0);
+        return toAlbumResponse(user, albumRepository.save(album), 0);
     }
 
     @Transactional
     public AlbumResponse updateAlbum(User user, UUID albumId, UpdateAlbumRequest request) {
         Album album = getOwnedAlbum(user, albumId);
+        albumAccessService.requireUnlocked(user, album);
 
         if (request.title() != null && !request.title().isBlank()) {
             album.setTitle(request.title().trim());
@@ -104,6 +110,7 @@ public class AlbumService {
         }
 
         return toAlbumResponse(
+                user,
                 albumRepository.save(album),
                 albumRepository.countPhotosByAlbumId(album.getId())
         );
@@ -112,6 +119,7 @@ public class AlbumService {
     @Transactional
     public void deleteAlbum(User user, UUID albumId) {
         Album album = getOwnedAlbum(user, albumId);
+        albumAccessService.requireUnlocked(user, album);
         albumPhotoRepository.deleteByAlbumId(album.getId());
         albumRepository.delete(album);
     }
@@ -119,6 +127,7 @@ public class AlbumService {
     @Transactional
     public void addPhotosToAlbum(User user, UUID albumId, AddPhotosToAlbumRequest request) {
         Album album = getOwnedAlbum(user, albumId);
+        albumAccessService.requireUnlocked(user, album);
         List<Photo> photos = photoRepository.findByIdInAndUserId(request.photoIds(), user.getId());
 
         if (photos.size() != request.photoIds().size()) {
@@ -153,7 +162,8 @@ public class AlbumService {
 
     @Transactional
     public void removePhotoFromAlbum(User user, UUID albumId, UUID photoId) {
-        getOwnedAlbum(user, albumId);
+        Album album = getOwnedAlbum(user, albumId);
+        albumAccessService.requireUnlocked(user, album);
         if (!albumPhotoRepository.existsByAlbumIdAndPhotoId(albumId, photoId)) {
             throw new ResourceNotFoundException("Photo not found in album");
         }
@@ -165,10 +175,15 @@ public class AlbumService {
                 .orElseThrow(() -> new ResourceNotFoundException("Album not found"));
     }
 
-    private AlbumResponse toAlbumResponse(Album album, long photoCount) {
+    public AlbumResponse toAlbumResponse(User user, Album album, long photoCount) {
+        boolean unlocked = albumAccessService.isUnlocked(user, album);
         Photo coverPhoto = album.getCoverPhoto();
         if (coverPhoto != null && coverPhoto.getStatus() != PhotoStatus.ACTIVE) {
             // An archived or trashed cover shouldn't leak into the album grid.
+            coverPhoto = null;
+        }
+        if (album.isLocked() && !unlocked) {
+            // The cover would reveal what is inside a private album.
             coverPhoto = null;
         }
         return new AlbumResponse(
@@ -177,6 +192,8 @@ public class AlbumService {
                 coverPhoto != null ? coverPhoto.getId() : null,
                 coverPhoto != null ? coverPhoto.getThumbnailUrl() : null,
                 photoCount,
+                album.isLocked(),
+                album.isLocked() && unlocked,
                 album.getCreatedAt(),
                 album.getUpdatedAt()
         );

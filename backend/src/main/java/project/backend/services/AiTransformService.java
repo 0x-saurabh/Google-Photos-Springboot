@@ -18,15 +18,17 @@ public class AiTransformService {
     private final PhotoRepository photoRepository;
     private final ImageKitService imageKitService;
     private final PhotoService photoService;
+    private final AlbumAccessService albumAccessService;
 
     public AiTransformService(
             PhotoRepository photoRepository,
             ImageKitService imageKitService,
-            PhotoService photoService
-    ) {
+            PhotoService photoService,
+            AlbumAccessService albumAccessService) {
         this.photoRepository = photoRepository;
         this.imageKitService = imageKitService;
         this.photoService = photoService;
+        this.albumAccessService = albumAccessService;
     }
 
     public AiTransformPreviewResponse preview(User user, UUID photoId, AiTransformRequest request) {
@@ -51,6 +53,7 @@ public class AiTransformService {
     }
 
     private Photo getActivePhoto(User user, UUID photoId) {
+        albumAccessService.requirePhotoAccessible(user, photoId);
         return photoRepository.findByIdAndUserId(photoId, user.getId())
                 .orElseThrow(() -> new ResourceNotFoundException("Photo not found"));
     }

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Image from "next/image";
-import { Check, FolderOpen, Plus } from "lucide-react";
+import { Check, FolderOpen, Lock, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -108,15 +108,20 @@ export function AddToAlbumDialog({ open, onOpenChange, photoIds }: AddToAlbumDia
               ) : (
                 albums.map((album) => {
                   const selected = selectedAlbumId === album.id;
+                  // A locked album only accepts photos once its PIN has been entered on its page.
+                  const lockedOut = album.locked && !album.unlocked;
                   return (
                     <button
                       key={album.id}
                       type="button"
                       role="option"
                       aria-selected={selected}
+                      aria-disabled={lockedOut || undefined}
+                      disabled={lockedOut}
+                      title={lockedOut ? "Unlock this album first to add photos" : undefined}
                       onClick={() => setSelectedAlbumId(album.id)}
                       className={cn(
-                        "flex w-full items-center gap-3 rounded-lg border px-2.5 py-2 text-left text-sm transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/60",
+                        "flex w-full items-center gap-3 rounded-lg border px-2.5 py-2 text-left text-sm transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/60 disabled:cursor-not-allowed disabled:opacity-60",
                         selected
                           ? "border-primary/60 bg-accent"
                           : "border-transparent hover:bg-muted",
@@ -140,9 +145,14 @@ export function AddToAlbumDialog({ open, onOpenChange, photoIds }: AddToAlbumDia
                         <span className="block truncate font-medium text-foreground">{album.title}</span>
                         <span className="block text-xs text-muted-foreground">
                           {album.photoCount} {album.photoCount === 1 ? "photo" : "photos"}
+                          {album.locked && (lockedOut ? " · Locked" : " · Private")}
                         </span>
                       </span>
-                      {selected && <Check className="size-4 text-primary" />}
+                      {lockedOut ? (
+                        <Lock className="size-4 text-muted-foreground" aria-hidden="true" />
+                      ) : selected ? (
+                        <Check className="size-4 text-primary" />
+                      ) : null}
                     </button>
                   );
                 })

@@ -7,6 +7,7 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import project.backend.domain.Album;
 import project.backend.domain.AlbumPhoto;
 
 import java.util.List;
@@ -41,6 +42,13 @@ public interface AlbumPhotoRepository extends JpaRepository<AlbumPhoto, UUID> {
     int findMaxSortOrder(@Param("albumId") UUID albumId);
 
     List<AlbumPhoto> findByPhotoId(UUID photoId);
+
+    /** Locked albums this photo belongs to; non-empty means the photo is private. */
+    @Query("""
+            SELECT ap.album FROM AlbumPhoto ap
+            WHERE ap.photo.id = :photoId AND ap.album.locked = true
+            """)
+    List<Album> findLockedAlbumsByPhotoId(@Param("photoId") UUID photoId);
 
     @Modifying
     @Query("DELETE FROM AlbumPhoto ap WHERE ap.photo.id = :photoId")

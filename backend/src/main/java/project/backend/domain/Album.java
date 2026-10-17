@@ -45,6 +45,23 @@ public class Album {
     @JoinColumn(name = "cover_photo_id")
     private Photo coverPhoto;
 
+    /** A locked album needs its PIN before its photos (or cover) are shown. */
+    @Builder.Default
+    @Column(name = "locked", nullable = false, columnDefinition = "boolean not null default false")
+    private boolean locked = false;
+
+    /** BCrypt hash of the PIN; null when the album is not locked. */
+    @Column(name = "pin_hash")
+    private String pinHash;
+
+    @Builder.Default
+    @Column(name = "pin_failed_attempts", nullable = false, columnDefinition = "integer not null default 0")
+    private int pinFailedAttempts = 0;
+
+    /** PIN entry is refused until this instant after too many wrong attempts. */
+    @Column(name = "pin_locked_until")
+    private Instant pinLockedUntil;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
