@@ -1,3 +1,4 @@
+import { useAlbumLockStore } from "@/stores/album-lock-store";
 import { useAuthStore } from "@/stores/auth-store";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080/api";
@@ -166,8 +167,17 @@ export type Album = {
   coverPhotoId: string | null;
   coverThumbnailUrl: string | null;
   photoCount: number;
+  /** Protected by a PIN. Cover and photos are withheld until unlocked. */
+  locked: boolean;
+  /** This response was served with a valid unlock token, so contents are visible. */
+  unlocked: boolean;
   createdAt: string;
   updatedAt: string;
+};
+
+export type AlbumUnlockResponse = {
+  albumToken: string;
+  expiresAt: string;
 };
 
 export type UpdateAlbumRequest = {
@@ -186,13 +196,18 @@ export type PageResponse<T> = {
 
 export class ApiError extends Error {
   status: number;
+  /** Set on 423 Locked: the PIN-protected album that owns the resource. */
+  albumId: string | null;
 
-  constructor(message: string, status: number) {
+  constructor(message: string, status: number, albumId: string | null = null) {
     super(message);
     this.name = "ApiError";
     this.status = status;
+    this.albumId = albumId;
   }
 }
+
+export const HTTP_LOCKED = 423;
 
 /* ---------------------------------------------------------------------------
  * Session handling
@@ -294,14 +309,18 @@ function looksLikeAuthFailure(status: number, tokenUsed: string | null) {
   return status === 401 || (status === 403 && isExpiredByClock(tokenUsed));
 }
 
-async function readErrorMessage(response: Response, fallback: string): Promise<string> {
+type ErrorBody = { message: string; albumId: string | null };
+
+async function readErrorBody(response: Response, fallback: string): Promise<ErrorBody> {
   try {
-    const body = (await response.json()) as { message?: unknown };
-    if (typeof body?.message === "string" && body.message.trim()) return body.message;
+    const body = (await response.json()) as { message?: unknown; albumId?: unknown };
+    return {
+      message: typeof body?.message === "string" && body.message.trim() ? body.message : fallback,
+      albumId: typeof body?.albumId === "string" ? body.albumId : null,
+    };
   } catch {
-    // ignore JSON parse errors
+    return { message: fallback, albumId: null };
   }
-  return fallback;
 }
 
 const SERVER_ERROR_MESSAGE = "The server couldn't complete this action. Please try again.";
@@ -318,6 +337,11 @@ async function request<T>(
     }
     if (token) {
       headers.set("Authorization", `Bearer ${token}`);
+    }
+    // Proof of the PINs entered this session, so locked albums open server-side.
+    const albumTokens = useAlbumLockStore.getState().headerValue();
+    if (albumTokens) {
+      headers.set("X-Album-Token", albumTokens);
     }
     return fetch(`${API_URL}${path}`, { ...options, headers });
   };
@@ -339,7 +363,8 @@ async function request<T>(
       throw new ApiError("Your session has expired. Please sign in again.", response.status);
     }
     const fallback = response.status >= 500 || response.status === 403 ? SERVER_ERROR_MESSAGE : "Request failed";
-    throw new ApiError(await readErrorMessage(response, fallback), response.status);
+    const body = await readErrorBody(response, fallback);
+    throw new ApiError(body.message, response.status, body.albumId);
   }
 
   if (response.status === 204) {
@@ -441,6 +466,24 @@ export const api = {
 
   removePhotoFromAlbum: (albumId: string, photoId: string) =>
     request<void>(`/albums/${albumId}/photos/${photoId}`, { method: "DELETE" }),
+
+  lockAlbum: (albumId: string, pin: string) =>
+    request<Album>(`/albums/${albumId}/lock`, { method: "POST", body: JSON.stringify({ pin }) }),
+
+  changeAlbumPin: (albumId: string, currentPin: string, newPin: string) =>
+    request<void>(`/albums/${albumId}/lock`, {
+      method: "PATCH",
+      body: JSON.stringify({ currentPin, newPin }),
+    }),
+
+  removeAlbumLock: (albumId: string, proof: { pin?: string; password?: string }) =>
+    request<Album>(`/albums/${albumId}/lock/remove`, { method: "POST", body: JSON.stringify(proof) }),
+
+  unlockAlbum: (albumId: string, pin: string) =>
+    request<AlbumUnlockResponse>(`/albums/${albumId}/unlock`, {
+      method: "POST",
+      body: JSON.stringify({ pin }),
+    }),
 
   previewAiTransform: (photoId: string, body: AiTransformRequest) =>
     request<AiTransformPreviewResponse>(`/photos/${photoId}/ai/preview`, {

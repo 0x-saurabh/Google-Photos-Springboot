@@ -13,8 +13,10 @@ import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Date;
+import java.util.Optional;
 import java.util.UUID;
 
 @Service
@@ -40,6 +42,35 @@ public class JwtService {
                 .expiration(Date.from(expiry))
                 .signWith(secretKey)
                 .compact();
+    }
+
+    /**
+     * Proves the holder entered the PIN of one album. Scoped to the user and the
+     * album, short-lived, and never accepted as an access token (different type).
+     */
+    public String generateAlbumToken(User user, UUID albumId, Duration ttl) {
+        Instant now = Instant.now();
+        return Jwts.builder()
+                .subject(user.getId().toString())
+                .claim("type", "album")
+                .claim("album", albumId.toString())
+                .issuedAt(Date.from(now))
+                .expiration(Date.from(now.plus(ttl)))
+                .signWith(secretKey)
+                .compact();
+    }
+
+    /** The album an album token unlocks for {@code userId}, or empty when invalid, expired or someone else's. */
+    public Optional<UUID> extractUnlockedAlbumId(String token, UUID userId) {
+        try {
+            Claims claims = parseClaims(token);
+            if (!"album".equals(claims.get("type", String.class))) return Optional.empty();
+            if (!userId.toString().equals(claims.getSubject())) return Optional.empty();
+            if (!claims.getExpiration().after(new Date())) return Optional.empty();
+            return Optional.of(UUID.fromString(claims.get("album", String.class)));
+        } catch (Exception ex) {
+            return Optional.empty();
+        }
     }
 
     public String generateRefreshTokenValue() {

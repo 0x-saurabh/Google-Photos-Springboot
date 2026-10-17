@@ -13,6 +13,8 @@ import org.springframework.web.multipart.MultipartFile;
 
 import io.imagekit.models.files.FileUploadResponse;
 import project.backend.domain.AiTransformType;
+import project.backend.domain.Album;
+import project.backend.domain.AlbumPhoto;
 import project.backend.domain.Photo;
 import project.backend.domain.PhotoStatus;
 import project.backend.domain.User;
@@ -41,16 +43,19 @@ public class PhotoService {
     private final AlbumPhotoRepository albumPhotoRepository;
     private final AlbumRepository albumRepository;
     private final ImageKitService imageKitService;
+    private final AlbumAccessService albumAccessService;
 
     public PhotoService(
             PhotoRepository photoRepository,
             AlbumPhotoRepository albumPhotoRepository,
             AlbumRepository albumRepository,
-            ImageKitService imageKitService) {
+            ImageKitService imageKitService,
+            AlbumAccessService albumAccessService) {
         this.photoRepository = photoRepository;
         this.albumPhotoRepository = albumPhotoRepository;
         this.albumRepository = albumRepository;
         this.imageKitService = imageKitService;
+        this.albumAccessService = albumAccessService;
     }
 
     @Transactional(readOnly = true)
@@ -62,10 +67,8 @@ public class PhotoService {
     @Transactional(readOnly = true)
     public PageResponse<PhotoResponse> listPhotos(User user, PhotoStatus status, String query, Pageable pageable) {
         String trimmed = query == null ? "" : query.trim();
-        Page<Photo> page = trimmed.isEmpty()
-                ? photoRepository.findByUserIdAndStatus(user.getId(), status, pageable)
-                : photoRepository.findByUserIdAndStatusAndFileNameContainingIgnoreCase(
-                        user.getId(), status, trimmed, pageable);
+        // Photos inside PIN-locked albums stay out of every library listing.
+        Page<Photo> page = photoRepository.findVisibleByUserIdAndStatus(user.getId(), status, trimmed, pageable);
         return toPageResponse(page);
     }
 
@@ -74,6 +77,7 @@ public class PhotoService {
     public PhotoVersionsResponse getVersions(User user, UUID photoId) {
         Photo photo = photoRepository.findByIdAndUserId(photoId, user.getId())
                 .orElseThrow(() -> new ResourceNotFoundException("Photo not found"));
+        albumAccessService.requirePhotoAccessible(user, photoId);
 
         PhotoResponse parent = photo.getParentPhotoId() == null
                 ? null
@@ -94,6 +98,7 @@ public class PhotoService {
     public PhotoResponse getPhoto(User user, UUID photoId) {
         Photo photo = photoRepository.findByIdAndUserId(photoId, user.getId())
                 .orElseThrow(() -> new ResourceNotFoundException("Photo not found"));
+        albumAccessService.requirePhotoAccessible(user, photoId);
         return toPhotoResponse(photo);
     }
 
@@ -137,7 +142,9 @@ public class PhotoService {
                 .editChain(editChain)
                 .build();
 
-        return toPhotoResponse(photoRepository.save(photo));
+        Photo saved = photoRepository.save(photo);
+        keepDerivedPrivate(sourcePhoto, saved);
+        return toPhotoResponse(saved);
     }
 
     @Transactional
@@ -332,6 +339,21 @@ public class PhotoService {
                 page.getTotalElements(),
                 page.getTotalPages(),
                 page.isLast());
+    }
+
+    /**
+     * An edited copy of a private photo must not surface in the public library,
+     * so it joins every locked album its source belongs to.
+     */
+    private void keepDerivedPrivate(Photo sourcePhoto, Photo derived) {
+        for (Album album : albumAccessService.lockedAlbumsContaining(sourcePhoto.getId())) {
+            int sortOrder = albumPhotoRepository.findMaxSortOrder(album.getId()) + 1;
+            albumPhotoRepository.save(AlbumPhoto.builder()
+                    .album(album)
+                    .photo(derived)
+                    .sortOrder(sortOrder)
+                    .build());
+        }
     }
 
     public PhotoResponse toPhotoResponse(Photo photo) {

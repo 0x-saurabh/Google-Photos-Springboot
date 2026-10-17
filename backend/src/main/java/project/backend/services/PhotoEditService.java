@@ -44,17 +44,19 @@ public class PhotoEditService {
     private final ImageKitService imageKitService;
     private final PhotoService photoService;
     private final AiTransformService aiTransformService;
+    private final AlbumAccessService albumAccessService;
 
     public PhotoEditService(
             PhotoRepository photoRepository,
             ImageKitService imageKitService,
             PhotoService photoService,
-            AiTransformService aiTransformService
-    ) {
+            AiTransformService aiTransformService,
+            AlbumAccessService albumAccessService) {
         this.photoRepository = photoRepository;
         this.imageKitService = imageKitService;
         this.photoService = photoService;
         this.aiTransformService = aiTransformService;
+        this.albumAccessService = albumAccessService;
     }
 
     public EditPreviewResponse preview(User user, UUID photoId, EditRequest request) {
@@ -271,6 +273,7 @@ public class PhotoEditService {
     }
 
     private Photo getOwnedPhoto(User user, UUID photoId) {
+        albumAccessService.requirePhotoAccessible(user, photoId);
         return photoRepository.findByIdAndUserId(photoId, user.getId())
                 .orElseThrow(() -> new ResourceNotFoundException("Photo not found"));
     }

@@ -25,6 +25,7 @@ import {
   type PhotoContext,
 } from "@/components/photos/photo-context";
 import { PhotoDetailsPanel } from "@/components/photos/photo-details-panel";
+import { ApiError, HTTP_LOCKED } from "@/lib/api";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { ErrorState } from "@/components/ui/error-state";
@@ -67,6 +68,12 @@ export function PhotoViewer({ photoId, context }: PhotoViewerProps) {
   const isMobile = useIsMobile();
   const { data: photo, isLoading, isError, error, refetch, isRefetching } = usePhoto(photoId);
   const { previous, next, index, total } = usePhotoNeighbors(photoId, context);
+
+  // A photo inside a PIN-locked album: the album page owns the PIN prompt.
+  const lockedAlbumId = error instanceof ApiError && error.status === HTTP_LOCKED ? error.albumId : null;
+  useEffect(() => {
+    if (lockedAlbumId) router.replace(`/albums/${lockedAlbumId}?photo=${photoId}`);
+  }, [lockedAlbumId, photoId, router]);
 
   const infoOpen = useViewerStore((state) => state.infoOpen);
   const setInfoOpen = useViewerStore((state) => state.setInfoOpen);

@@ -1,22 +1,29 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
   CheckSquare,
   ImagePlus,
+  KeyRound,
+  Lock,
+  LockOpen,
   MoreHorizontal,
   Pencil,
   Trash2,
 } from "lucide-react";
+import { AlbumLockScreen } from "@/components/albums/album-lock-screen";
+import { ChangePinDialog, RemoveLockDialog, SetPinDialog } from "@/components/albums/album-lock-dialogs";
 import { AlbumPhotoPickerDialog } from "@/components/albums/album-photo-picker-dialog";
 import { AlbumTitleDialog } from "@/components/albums/album-title-dialog";
 import { PageHeader } from "@/components/layout/page-header";
 import { PhotoBulkToolbar } from "@/components/photos/photo-bulk-toolbar";
 import type { PhotoContext } from "@/components/photos/photo-context";
 import { PhotoGrid } from "@/components/photos/photo-grid";
+import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import {
@@ -38,27 +45,45 @@ import { ErrorState } from "@/components/ui/error-state";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
 import { useIntersection } from "@/hooks/use-intersection";
-import { useAlbum, useAlbumPhotos, useDeleteAlbum, useUpdateAlbum } from "@/hooks/use-albums";
+import {
+  useAlbum,
+  useAlbumPhotos,
+  useDeleteAlbum,
+  useRelockAlbum,
+  useUpdateAlbum,
+} from "@/hooks/use-albums";
 import { formatDate } from "@/lib/format-date";
+import { albumKeys } from "@/lib/query-keys";
+import { useAlbumLockStore } from "@/stores/album-lock-store";
 import { usePhotoSelectionStore } from "@/stores/photo-selection-store";
 
-export default function AlbumDetailPage() {
+function AlbumDetailContent() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const queryClient = useQueryClient();
   const { data: album, isLoading: isAlbumLoading, isError: isAlbumError, error, refetch, isRefetching } = useAlbum(id);
+
+  // The server decides: a locked album only shows photos when this request carried a live token.
+  const needsPin = !!album?.locked && !album.unlocked;
   const {
     data,
     isLoading: arePhotosLoading,
     isFetchingNextPage,
     hasNextPage,
     fetchNextPage,
-  } = useAlbumPhotos(id);
+  } = useAlbumPhotos(id, { enabled: !!album && !needsPin });
   const updateAlbum = useUpdateAlbum(id);
   const deleteAlbum = useDeleteAlbum();
+  const relock = useRelockAlbum(id);
+  const unlockExpiresAt = useAlbumLockStore((state) => state.unlocked[id]?.expiresAt ?? null);
 
   const [renameOpen, setRenameOpen] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [setPinOpen, setSetPinOpen] = useState(false);
+  const [changePinOpen, setChangePinOpen] = useState(false);
+  const [removeLockOpen, setRemoveLockOpen] = useState(false);
 
   const isSelectMode = usePhotoSelectionStore((state) => state.isSelectMode);
   const enterSelectMode = usePhotoSelectionStore((state) => state.enterSelectMode);
@@ -87,6 +112,26 @@ export default function AlbumDetailPage() {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [exitSelectMode, isSelectMode]);
+
+  // When the unlock token runs out, ask the server again so the PIN screen comes back on its own.
+  useEffect(() => {
+    if (!unlockExpiresAt) return;
+    const delay = Math.max(0, unlockExpiresAt - Date.now()) + 500;
+    const timer = window.setTimeout(() => {
+      useAlbumLockStore.getState().lock(id);
+      queryClient.invalidateQueries({ queryKey: albumKeys.detail(id) });
+      queryClient.removeQueries({ queryKey: albumKeys.photos(id) });
+    }, delay);
+    return () => window.clearTimeout(timer);
+  }, [id, queryClient, unlockExpiresAt]);
+
+  // Arrived here from a photo that turned out to be private: continue to it once unlocked.
+  const pendingPhoto = searchParams.get("photo");
+  useEffect(() => {
+    if (pendingPhoto && album && !needsPin) {
+      router.replace(`/photos/${pendingPhoto}?album=${id}`);
+    }
+  }, [album, id, needsPin, pendingPhoto, router]);
 
   if (isAlbumLoading) {
     return (
@@ -122,6 +167,8 @@ export default function AlbumDetailPage() {
     );
   }
 
+  const lockDialogProps = { albumId: album.id, albumTitle: album.title };
+
   return (
     <div className="space-y-6">
       <Link href="/albums" className={buttonVariants({ variant: "ghost", size: "sm", className: "-ml-2" })}>
@@ -130,7 +177,17 @@ export default function AlbumDetailPage() {
       </Link>
 
       <PageHeader
-        title={album.title}
+        title={
+          <span className="inline-flex items-center gap-2.5">
+            {album.title}
+            {album.locked && (
+              <Badge variant="secondary" className="gap-1 font-normal">
+                {album.unlocked ? <LockOpen className="size-3" /> : <Lock className="size-3" />}
+                {album.unlocked ? "Unlocked" : "Private"}
+              </Badge>
+            )}
+          </span>
+        }
         description={
           <>
             {album.photoCount} {album.photoCount === 1 ? "photo" : "photos"}
@@ -139,7 +196,7 @@ export default function AlbumDetailPage() {
         }
         actions={
           <>
-            {photos.length > 0 && (
+            {!needsPin && photos.length > 0 && (
               <Button
                 variant={isSelectMode ? "secondary" : "outline"}
                 size="sm"
@@ -150,33 +207,68 @@ export default function AlbumDetailPage() {
                 {isSelectMode ? "Done" : "Select"}
               </Button>
             )}
-            <Button size="sm" onClick={() => setPickerOpen(true)}>
-              <ImagePlus />
-              Add photos
-            </Button>
+            {album.unlocked && (
+              <Button variant="outline" size="sm" onClick={relock}>
+                <Lock />
+                Lock now
+              </Button>
+            )}
+            {!needsPin && (
+              <Button size="sm" onClick={() => setPickerOpen(true)}>
+                <ImagePlus />
+                Add photos
+              </Button>
+            )}
             <DropdownMenu>
               <DropdownMenuTrigger
                 render={<Button variant="outline" size="icon-sm" aria-label="Album options" />}
               >
                 <MoreHorizontal />
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="min-w-40">
-                <DropdownMenuItem onClick={() => setRenameOpen(true)}>
-                  <Pencil />
-                  Rename
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem variant="destructive" onClick={() => setConfirmDelete(true)}>
-                  <Trash2 />
-                  Delete album
-                </DropdownMenuItem>
+              <DropdownMenuContent align="end" className="min-w-44">
+                {!needsPin && (
+                  <DropdownMenuItem onClick={() => setRenameOpen(true)}>
+                    <Pencil />
+                    Rename
+                  </DropdownMenuItem>
+                )}
+                {album.locked ? (
+                  <>
+                    {album.unlocked && (
+                      <DropdownMenuItem onClick={() => setChangePinOpen(true)}>
+                        <KeyRound />
+                        Change PIN
+                      </DropdownMenuItem>
+                    )}
+                    <DropdownMenuItem onClick={() => setRemoveLockOpen(true)}>
+                      <LockOpen />
+                      Remove lock
+                    </DropdownMenuItem>
+                  </>
+                ) : (
+                  <DropdownMenuItem onClick={() => setSetPinOpen(true)}>
+                    <Lock />
+                    Lock with PIN
+                  </DropdownMenuItem>
+                )}
+                {!needsPin && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem variant="destructive" onClick={() => setConfirmDelete(true)}>
+                      <Trash2 />
+                      Delete album
+                    </DropdownMenuItem>
+                  </>
+                )}
               </DropdownMenuContent>
             </DropdownMenu>
           </>
         }
       />
 
-      {photos.length === 0 && !arePhotosLoading ? (
+      {needsPin ? (
+        <AlbumLockScreen albumId={album.id} photoCount={album.photoCount} />
+      ) : photos.length === 0 && !arePhotosLoading ? (
         <Empty className="border border-dashed border-border py-16">
           <EmptyHeader>
             <EmptyMedia variant="icon" className="size-10 rounded-xl bg-accent text-accent-foreground [&_svg]:size-5">
@@ -212,7 +304,7 @@ export default function AlbumDetailPage() {
         </>
       )}
 
-      <PhotoBulkToolbar photoIds={photoIds} context={context} />
+      {!needsPin && <PhotoBulkToolbar photoIds={photoIds} context={context} />}
 
       <AlbumTitleDialog
         open={renameOpen}
@@ -233,6 +325,10 @@ export default function AlbumDetailPage() {
         existingIds={existingIds}
       />
 
+      <SetPinDialog open={setPinOpen} onOpenChange={setSetPinOpen} {...lockDialogProps} />
+      <ChangePinDialog open={changePinOpen} onOpenChange={setChangePinOpen} {...lockDialogProps} />
+      <RemoveLockDialog open={removeLockOpen} onOpenChange={setRemoveLockOpen} {...lockDialogProps} />
+
       <ConfirmDialog
         open={confirmDelete}
         onOpenChange={setConfirmDelete}
@@ -248,5 +344,19 @@ export default function AlbumDetailPage() {
         }
       />
     </div>
+  );
+}
+
+export default function AlbumDetailPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex justify-center py-16">
+          <Spinner className="size-6" />
+        </div>
+      }
+    >
+      <AlbumDetailContent />
+    </Suspense>
   );
 }

@@ -42,6 +42,18 @@ public class GlobalExceptionHandler {
     return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("message", ex.getMessage()));
   }
 
+  /** 423 Locked carries the album id so the client can send the user to its PIN screen. */
+  @ExceptionHandler(AlbumLockedException.class)
+  public ResponseEntity<Map<String, String>> handleAlbumLocked(AlbumLockedException ex) {
+    return ResponseEntity.status(HttpStatus.LOCKED)
+            .body(Map.of("message", ex.getMessage(), "albumId", ex.getAlbumId().toString()));
+  }
+
+  @ExceptionHandler(TooManyAttemptsException.class)
+  public ResponseEntity<Map<String, String>> handleTooManyAttempts(TooManyAttemptsException ex) {
+    return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body(Map.of("message", ex.getMessage()));
+  }
+
   @ExceptionHandler(NoResourceFoundException.class)
   public ResponseEntity<Map<String, String>> handleNoResource(NoResourceFoundException ex) {
     return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("message", "No such endpoint"));

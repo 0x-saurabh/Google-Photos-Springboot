@@ -8,7 +8,8 @@ import {
 } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { api, type UpdateAlbumRequest } from "@/lib/api";
-import { albumKeys } from "@/lib/query-keys";
+import { albumKeys, photoKeys } from "@/lib/query-keys";
+import { useAlbumLockStore } from "@/stores/album-lock-store";
 import { useAuthStore } from "@/stores/auth-store";
 
 const PAGE_SIZE = 24;
@@ -33,7 +34,7 @@ export function useAlbum(albumId: string) {
   });
 }
 
-export function useAlbumPhotos(albumId: string) {
+export function useAlbumPhotos(albumId: string, { enabled = true }: { enabled?: boolean } = {}) {
   const accessToken = useAuthStore((state) => state.accessToken);
 
   return useInfiniteQuery({
@@ -41,7 +42,7 @@ export function useAlbumPhotos(albumId: string) {
     queryFn: ({ pageParam = 0 }) => api.getAlbumPhotos(albumId, pageParam, PAGE_SIZE),
     initialPageParam: 0,
     getNextPageParam: (lastPage) => (lastPage.last ? undefined : lastPage.page + 1),
-    enabled: !!accessToken && !!albumId,
+    enabled: !!accessToken && !!albumId && enabled,
   });
 }
 
@@ -128,4 +129,72 @@ export function useRemovePhotoFromAlbum(albumId: string) {
       toast.error(error instanceof Error ? error.message : "Failed to remove photo from album");
     },
   });
+}
+
+/** Everything that can change when an album's lock state flips: album, its photos, and the library listing. */
+function invalidateLockDependents(queryClient: ReturnType<typeof useQueryClient>, albumId: string) {
+  queryClient.invalidateQueries({ queryKey: albumKeys.all });
+  queryClient.invalidateQueries({ queryKey: albumKeys.detail(albumId) });
+  queryClient.invalidateQueries({ queryKey: albumKeys.photos(albumId) });
+  queryClient.invalidateQueries({ queryKey: photoKeys.all });
+}
+
+export function useLockAlbum(albumId: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (pin: string) => api.lockAlbum(albumId, pin),
+    onSuccess: (album) => {
+      // Setting a PIN re-locks the album; the owner unlocks it like anyone else would.
+      useAlbumLockStore.getState().lock(albumId);
+      queryClient.setQueryData(albumKeys.detail(albumId), album);
+      invalidateLockDependents(queryClient, albumId);
+      toast.success("Album locked", { description: "Its photos are hidden from the library until unlocked." });
+    },
+  });
+}
+
+export function useChangeAlbumPin(albumId: string) {
+  return useMutation({
+    mutationFn: ({ currentPin, newPin }: { currentPin: string; newPin: string }) =>
+      api.changeAlbumPin(albumId, currentPin, newPin),
+    onSuccess: () => toast.success("PIN changed"),
+  });
+}
+
+export function useRemoveAlbumLock(albumId: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (proof: { pin?: string; password?: string }) => api.removeAlbumLock(albumId, proof),
+    onSuccess: (album) => {
+      useAlbumLockStore.getState().lock(albumId);
+      queryClient.setQueryData(albumKeys.detail(albumId), album);
+      invalidateLockDependents(queryClient, albumId);
+      toast.success("Lock removed", { description: "The album is visible in your library again." });
+    },
+  });
+}
+
+export function useUnlockAlbum(albumId: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (pin: string) => api.unlockAlbum(albumId, pin),
+    onSuccess: (result) => {
+      useAlbumLockStore.getState().unlock(albumId, result.albumToken, result.expiresAt);
+      invalidateLockDependents(queryClient, albumId);
+    },
+  });
+}
+
+/** Forgets the album's unlock token so it asks for the PIN again. */
+export function useRelockAlbum(albumId: string) {
+  const queryClient = useQueryClient();
+
+  return () => {
+    useAlbumLockStore.getState().lock(albumId);
+    queryClient.removeQueries({ queryKey: albumKeys.photos(albumId) });
+    invalidateLockDependents(queryClient, albumId);
+  };
 }
