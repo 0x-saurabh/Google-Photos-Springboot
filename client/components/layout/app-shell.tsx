@@ -49,7 +49,7 @@ export function AppShell({ children }: AppShellProps) {
               <Menu className="size-4" />
             </Button>
             <div className="min-w-0">
-              <p className="truncate text-sm font-medium text-foreground">Google Photos</p>
+              <p className="truncate text-sm font-medium text-foreground">Pixora</p>
               {user && (
                 <p className="truncate text-xs text-muted-foreground">{user.displayName}</p>
               )}

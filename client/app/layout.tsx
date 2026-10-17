@@ -16,7 +16,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Google Photos Clone",
+  title: "Pixora" ,
   description: "Store, organize, and edit your memories",
 };
 

@@ -17,6 +17,7 @@ import { Spinner } from "@/components/ui/spinner";
 import type { User } from "@/lib/api";
 import Image from "next/image";
 
+
 const navItems = [
   { href: "/photos", label: "Photos", icon: Images },
   { href: "/albums", label: "Albums", icon: FolderOpen },
@@ -38,11 +39,17 @@ export function SidebarNav({ user, onNavigate }: SidebarNavProps) {
       <div className="border-b border-sidebar-border px-5 py-5">
         <div className="flex items-center gap-3">
           <div className="flex size-9 items-center justify-center rounded-xl bg-primary/15 text-primary">
-            <Image src="/logo2.svg" alt="logo" width={36} height={36} className="size-9 h-auto w-auto" />
-          </div>
+          <Image
+  src="/Pixora.svg"
+  alt=""
+  width={200}
+  height={140}
+  priority
+/>
+            </div>
           <div className="min-w-0">
-            <p className="truncate text-sm font-semibold text-sidebar-foreground">Google Photos</p>
-            <p className="text-xs text-muted-foreground">Clone</p>
+            <p className="truncate text-sm font-semibold text-sidebar-foreground">Pixora</p>
+           <p className="truncate text-xs text-muted-foreground ">Store, organize, and edit </p><p className="truncate text-xs text-muted-foreground ">your memories</p>
           </div>
         </div>
       </div>

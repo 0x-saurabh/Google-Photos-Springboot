@@ -13,7 +13,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
 
         <div className="mb-8 text-center">
           <Link href="/" className="text-2xl font-semibold tracking-tight text-foreground">
-            Google Photos Clone
+            Pixora
           </Link>
           <p className="mt-2 text-sm text-muted-foreground">
             Store, organize, and edit your memories
