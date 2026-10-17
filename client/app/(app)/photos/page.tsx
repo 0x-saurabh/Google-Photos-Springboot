@@ -1,15 +1,17 @@
+import type { Metadata } from "next";
 import { PhotoLibraryView } from "@/components/photos/photo-library-view";
+
+export const metadata: Metadata = { title: "Photos" };
 
 export default function PhotosPage() {
   return (
     <PhotoLibraryView
       title="Photos"
-      description="Upload your first photo to get started"
+      description="Everything in your library, newest first"
       status="ACTIVE"
-      emptyTitle="No photos yet"
-      emptyDescription="Upload images from your computer. They will be stored in ImageKit and appear here instantly."
+      emptyTitle="Your library is empty"
+      emptyDescription="Drop images anywhere on this page or use the upload button. They are stored in ImageKit and appear here right away."
       showUpload
-      showTrashAction
     />
   );
 }

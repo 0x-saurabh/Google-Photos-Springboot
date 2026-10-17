@@ -6,111 +6,101 @@ import {
   Archive,
   FolderOpen,
   Images,
-  LogOut,
+  LayoutGrid,
   Trash2,
+  type LucideIcon,
 } from "lucide-react";
-import { useLogout } from "@/hooks/use-auth";
-import { cn } from "@/lib/utils";
+import { PixoraLogo } from "@/components/brand/pixora-logo";
 import { StorageWidget } from "@/components/library/storage-widget";
-import { ModeToggle } from "@/components/ui/mode-toggle";
-import { Spinner } from "@/components/ui/spinner";
-import type { User } from "@/lib/api";
-import Image from "next/image";
+import { cn } from "@/lib/utils";
 
+type NavItem = {
+  href: string;
+  label: string;
+  icon: LucideIcon;
+};
 
-const navItems = [
-  { href: "/photos", label: "Photos", icon: Images },
-  { href: "/albums", label: "Albums", icon: FolderOpen },
-  { href: "/archive", label: "Archive", icon: Archive },
-  { href: "/trash", label: "Trash", icon: Trash2 },
+/* Only routes that exist and are backed by the API. */
+const navGroups: { heading: string | null; items: NavItem[] }[] = [
+  {
+    heading: null,
+    items: [
+      { href: "/dashboard", label: "Overview", icon: LayoutGrid },
+      { href: "/photos", label: "Photos", icon: Images },
+      { href: "/albums", label: "Albums", icon: FolderOpen },
+    ],
+  },
+  {
+    heading: "Manage",
+    items: [
+      { href: "/archive", label: "Archive", icon: Archive },
+      { href: "/trash", label: "Trash", icon: Trash2 },
+    ],
+  },
 ];
 
 type SidebarNavProps = {
-  user?: User | null;
   onNavigate?: () => void;
 };
 
-export function SidebarNav({ user, onNavigate }: SidebarNavProps) {
+export function SidebarNav({ onNavigate }: SidebarNavProps) {
   const pathname = usePathname();
-  const logoutMutation = useLogout();
 
   return (
     <div className="flex h-full flex-col">
-      <div className="border-b border-sidebar-border px-5 py-5">
-        <div className="flex items-center gap-3">
-          <div className="flex size-9 items-center justify-center rounded-xl bg-primary/15 text-primary">
-          <Image
-  src="/Pixora.svg"
-  alt=""
-  width={200}
-  height={140}
-  priority
-/>
-            </div>
-          <div className="min-w-0">
-            <p className="truncate text-sm font-semibold text-sidebar-foreground">Pixora</p>
-           <p className="truncate text-xs text-muted-foreground ">Store, organize, and edit </p><p className="truncate text-xs text-muted-foreground ">your memories</p>
-          </div>
-        </div>
+      <div className="flex h-16 items-center px-5">
+        <Link
+          href="/dashboard"
+          onClick={onNavigate}
+          className="rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+        >
+          <PixoraLogo />
+        </Link>
       </div>
 
-      <nav className="flex-1 space-y-1 px-3 py-4">
-        {navItems.map(({ href, label, icon: Icon }) => {
-          const isActive = pathname === href || pathname.startsWith(`${href}/`);
-
-          return (
-            <Link
-              key={href}
-              href={href}
-              onClick={onNavigate}
-              className={cn(
-                "flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors",
-                isActive
-                  ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                  : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
-              )}
-            >
-              <Icon className="size-4 shrink-0" />
-              <span className="truncate">{label}</span>
-            </Link>
-          );
-        })}
+      <nav aria-label="Workspace" className="flex flex-1 flex-col gap-5 px-3 pt-1">
+        {navGroups.map((group) => (
+          <div key={group.heading ?? "primary"}>
+            {group.heading && (
+              <p className="mb-1.5 px-3 text-[11px] font-medium tracking-[0.1em] text-muted-foreground uppercase">
+                {group.heading}
+              </p>
+            )}
+            <ul className="space-y-0.5">
+              {group.items.map(({ href, label, icon: Icon }) => {
+                const isActive = pathname === href || pathname.startsWith(`${href}/`);
+                return (
+                  <li key={href}>
+                    <Link
+                      href={href}
+                      onClick={onNavigate}
+                      aria-current={isActive ? "page" : undefined}
+                      className={cn(
+                        "group flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13.5px] font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/60",
+                        isActive
+                          ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                          : "text-muted-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-foreground",
+                      )}
+                    >
+                      <Icon
+                        className={cn(
+                          "size-4 shrink-0 transition-colors",
+                          isActive ? "text-primary" : "text-muted-foreground group-hover:text-sidebar-foreground",
+                        )}
+                        aria-hidden="true"
+                      />
+                      <span className="truncate">{label}</span>
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        ))}
       </nav>
 
-      <div className="mt-auto space-y-3 border-t border-sidebar-border px-3 py-4">
+      <div className="px-3 pb-4">
         <StorageWidget />
-
-        {user && (
-          <div className="rounded-xl bg-sidebar-accent/40 px-3 py-2.5">
-            <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Signed in as</p>
-            <p className="truncate text-sm font-medium text-sidebar-foreground">{user.displayName}</p>
-            <p className="truncate text-xs text-muted-foreground">{user.email}</p>
-          </div>
-        )}
-
-        <div className="flex items-center justify-between rounded-xl px-2 py-1.5">
-          <span className="text-sm text-muted-foreground">Theme</span>
-          <ModeToggle />
-        </div>
-
-        <button
-          type="button"
-          onClick={() => logoutMutation.mutate()}
-          disabled={logoutMutation.isPending}
-          className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-sidebar-accent/60 hover:text-sidebar-foreground disabled:opacity-50"
-        >
-          {logoutMutation.isPending ? (
-            <>
-              <Spinner />
-              Signing out...
-            </>
-          ) : (
-            <>
-              <LogOut className="size-4 shrink-0" />
-              Sign out
-            </>
-          )}
-        </button>
       </div>
     </div>
   );

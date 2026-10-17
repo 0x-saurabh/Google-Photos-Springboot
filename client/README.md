@@ -1,36 +1,66 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Pixora – web client
 
-## Getting Started
+Pixora is a cloud photo library. This is the Next.js frontend; it talks to the Spring Boot API in `../backend`, which stores files in ImageKit and metadata in PostgreSQL.
 
-First, run the development server:
+## Stack
+
+- Next.js 16 (App Router, Turbopack) with React 19 and TypeScript
+- Tailwind CSS 4 with shadcn/ui (Base UI primitives) and lucide icons
+- TanStack Query for server state, Zustand for auth, selection and upload queue state
+- next-themes for light / dark / system theme
+- sonner for toasts, react-hook-form + zod for forms
+
+## Running locally
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+pnpm install
+pnpm dev          # http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+The API base URL defaults to `http://localhost:8080/api`. Override it with:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+NEXT_PUBLIC_API_URL=https://your-api.example.com/api pnpm dev
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Other scripts: `pnpm lint`, `pnpm build`, `pnpm start`.
 
-## Learn More
+## Routes
 
-To learn more about Next.js, take a look at the following resources:
+| Route | Purpose |
+| --- | --- |
+| `/` | Public landing page (features, how it works, workspace preview) |
+| `/login`, `/register` | Authentication; signed-in users are redirected to the workspace |
+| `/dashboard` | Overview: recently added photos, albums, real library usage, quick actions |
+| `/photos` | Main library with drag-and-drop upload, filtering, selection and bulk actions |
+| `/photos/[id]` | Full-screen viewer with prev/next, details panel and ImageKit AI edits |
+| `/albums`, `/albums/[id]` | Album list and detail with rename, cover, add/remove photos, delete |
+| `/archive`, `/trash` | Archived and trashed photos with restore / permanent delete |
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Protected routes are guarded on the client (`components/auth/auth-guard.tsx`). Unauthenticated visitors are sent to `/login?next=…` and return to the page they asked for after signing in.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Project layout
 
-## Deploy on Vercel
+```
+app/              routes (route groups: (auth), (app))
+components/
+  brand/          Pixora mark and wordmark
+  landing/        public landing page sections
+  layout/         app shell, sidebar, account menu, page header
+  photos/         grid, tiles, viewer, upload queue, drop zone, bulk toolbar
+  albums/         album grid, dialogs, photo picker
+  dashboard/      overview widgets
+  library/        storage summary, ImageKit import
+  ui/             shadcn/ui primitives plus small shared pieces
+hooks/            TanStack Query hooks and UI hooks
+lib/              API client (with token refresh), ImageKit URL helpers, formatting
+stores/           Zustand stores: auth (persisted), selection, upload queue, viewer
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Sessions
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Access tokens are short-lived; `lib/api.ts` decodes the `exp` claim and refreshes via `POST /auth/refresh` shortly before expiry, or once after an unauthenticated response. Refresh calls are single-flight and tolerate another tab having rotated the token first.
+
+## Images
+
+Thumbnails and album covers are requested from ImageKit with a square smart-crop URL transformation (`lib/imagekit.ts`). Full-size images in the viewer use the original URL. No ImageKit credentials live in the client; uploads go through the backend.

@@ -7,7 +7,7 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { api } from "@/lib/api";
+import { api, type UpdateAlbumRequest } from "@/lib/api";
 import { albumKeys } from "@/lib/query-keys";
 import { useAuthStore } from "@/stores/auth-store";
 
@@ -60,6 +60,22 @@ export function useCreateAlbum() {
   });
 }
 
+export function useUpdateAlbum(albumId: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (body: UpdateAlbumRequest) => api.updateAlbum(albumId, body),
+    onSuccess: (album, variables) => {
+      queryClient.setQueryData(albumKeys.detail(albumId), album);
+      queryClient.invalidateQueries({ queryKey: albumKeys.lists() });
+      toast.success(variables.coverPhotoId ? "Album cover updated" : "Album renamed");
+    },
+    onError: (error) => {
+      toast.error(error instanceof Error ? error.message : "Failed to update album");
+    },
+  });
+}
+
 export function useDeleteAlbum() {
   const queryClient = useQueryClient();
 
@@ -85,7 +101,11 @@ export function useAddPhotosToAlbum() {
       queryClient.invalidateQueries({ queryKey: albumKeys.all });
       queryClient.invalidateQueries({ queryKey: albumKeys.detail(variables.albumId) });
       queryClient.invalidateQueries({ queryKey: albumKeys.photos(variables.albumId) });
-      toast.success("Photos added to album");
+      toast.success(
+        variables.photoIds.length === 1
+          ? "Photo added to album"
+          : `${variables.photoIds.length} photos added to album`,
+      );
     },
     onError: (error) => {
       toast.error(error instanceof Error ? error.message : "Failed to add photos to album");

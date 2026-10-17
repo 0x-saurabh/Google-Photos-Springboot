@@ -1,36 +1,61 @@
 "use client";
 
 import { HardDrive } from "lucide-react";
-import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useStorageUsage } from "@/hooks/use-library";
 import { formatBytes } from "@/lib/format-bytes";
+import { cn } from "@/lib/utils";
 
-const DISPLAY_QUOTA_BYTES = 5 * 1024 * 1024 * 1024;
+type StorageWidgetProps = {
+  className?: string;
+};
 
-export function StorageWidget() {
-  const { data, isLoading } = useStorageUsage();
+/**
+ * Shows real library usage from the backend. There is no quota in the API,
+ * so no percentage bar is drawn.
+ */
+export function StorageWidget({ className }: StorageWidgetProps) {
+  const { data, isLoading, isError } = useStorageUsage();
 
   if (isLoading) {
-    return <Skeleton className="mx-3 h-20 rounded-xl" />;
+    return <Skeleton className={cn("h-[4.25rem] rounded-lg", className)} />;
   }
 
-  if (!data) {
+  if (isError || !data) {
     return null;
   }
 
-  const usedPercent = Math.min(100, (data.libraryUsedBytes / DISPLAY_QUOTA_BYTES) * 100);
-
   return (
-    <div className="mx-3 rounded-xl bg-sidebar-accent/40 px-3 py-3">
-      <div className="mb-2 flex items-center gap-2 text-sm font-medium text-sidebar-foreground">
-        <HardDrive className="size-4" />
-        Library storage
+    <div
+      className={cn(
+        "rounded-lg border border-sidebar-border bg-background/60 px-3 py-2.5 text-xs",
+        className,
+      )}
+    >
+      <div className="flex items-center gap-2 font-medium text-sidebar-foreground">
+        <HardDrive className="size-3.5 text-muted-foreground" aria-hidden="true" />
+        Library
       </div>
-      <Progress value={usedPercent} className="mb-2 h-2" />
-      <p className="text-xs text-muted-foreground">
-        {formatBytes(data.libraryUsedBytes)} used · {data.libraryPhotoCount} photos
-      </p>
+      <dl className="mt-1.5 grid grid-cols-2 gap-x-3 text-muted-foreground">
+        <div>
+          <dt className="sr-only">Photos</dt>
+          <dd>
+            <span className="font-medium text-sidebar-foreground tabular-nums">
+              {data.libraryPhotoCount}
+            </span>{" "}
+            {data.libraryPhotoCount === 1 ? "photo" : "photos"}
+          </dd>
+        </div>
+        <div>
+          <dt className="sr-only">Storage used</dt>
+          <dd>
+            <span className="font-medium text-sidebar-foreground tabular-nums">
+              {formatBytes(data.libraryUsedBytes)}
+            </span>{" "}
+            used
+          </dd>
+        </div>
+      </dl>
     </div>
   );
 }

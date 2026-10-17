@@ -1,13 +1,16 @@
-
+import type { Metadata } from "next";
 import { AuthForm } from "@/components/auth/auth-form";
-import { CardDescription, CardTitle } from "@/components/ui/card";
+
+export const metadata: Metadata = { title: "Create account" };
 
 export default function RegisterPage() {
   return (
-    <div className="space-y-6">
-      <div className="space-y-1">
-        <CardTitle className="text-lg">Create account</CardTitle>
-        <CardDescription>Start organizing your photos in one place</CardDescription>
+    <div className="space-y-8">
+      <div className="space-y-2">
+        <h1 className="font-display text-3xl text-foreground">Create your library</h1>
+        <p className="text-sm text-muted-foreground">
+          One account, one private place for your photos.
+        </p>
       </div>
       <AuthForm mode="register" />
     </div>
