@@ -2,20 +2,28 @@
 
 import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { api, type PhotoStatus } from "@/lib/api";
+import { api, type PhotoSort, type PhotoStatus } from "@/lib/api";
 import { albumKeys, libraryKeys, photoKeys } from "@/lib/query-keys";
 import { useAuthStore } from "@/stores/auth-store";
 import { usePhotoSelectionStore } from "@/stores/photo-selection-store";
 
 const PAGE_SIZE = 24;
 
-export function usePhotos(status: PhotoStatus = "ACTIVE", options: { enabled?: boolean } = {}) {
+type UsePhotosOptions = {
+  enabled?: boolean;
+  /** Server-side file name search. */
+  q?: string;
+  sort?: PhotoSort;
+};
+
+export function usePhotos(status: PhotoStatus = "ACTIVE", options: UsePhotosOptions = {}) {
   const accessToken = useAuthStore((state) => state.accessToken);
-  const { enabled = true } = options;
+  const { enabled = true, q = "", sort = "newest" } = options;
 
   return useInfiniteQuery({
-    queryKey: photoKeys.list(status),
-    queryFn: ({ pageParam = 0 }) => api.getPhotos(status, pageParam, PAGE_SIZE),
+    queryKey: photoKeys.list(status, q, sort),
+    queryFn: ({ pageParam = 0 }) =>
+      api.getPhotos({ status, page: pageParam, size: PAGE_SIZE, q, sort }),
     initialPageParam: 0,
     getNextPageParam: (lastPage) => (lastPage.last ? undefined : lastPage.page + 1),
     enabled: !!accessToken && enabled,

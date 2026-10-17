@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { CloudDownload, FolderPlus, Images } from "lucide-react";
+import { CloudDownload, FolderPlus, Images, SlidersHorizontal } from "lucide-react";
 import { CreateAlbumDialog } from "@/components/albums/create-album-dialog";
 import { LibrarySummary } from "@/components/dashboard/library-summary";
 import { RecentAlbums } from "@/components/dashboard/recent-albums";
@@ -70,6 +70,10 @@ export default function DashboardPage() {
                 <li className="flex gap-2">
                   <Images className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
                   In the viewer, press the arrow keys to step through photos and I for details.
+                </li>
+                <li className="flex gap-2">
+                  <SlidersHorizontal className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+                  Press E on any photo to open the editor. Edits are saved as new photos, so originals stay safe.
                 </li>
               </ul>
             </div>

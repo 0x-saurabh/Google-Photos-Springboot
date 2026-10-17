@@ -20,10 +20,11 @@ import {
 } from "@/components/ui/empty";
 import { ErrorState } from "@/components/ui/error-state";
 import { Input } from "@/components/ui/input";
+import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { Spinner } from "@/components/ui/spinner";
 import { useIntersection } from "@/hooks/use-intersection";
 import { usePhotos } from "@/hooks/use-photos";
-import type { PhotoStatus } from "@/lib/api";
+import type { PhotoSort, PhotoStatus } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { usePhotoSelectionStore } from "@/stores/photo-selection-store";
 
@@ -40,6 +41,22 @@ type PhotoLibraryViewProps = {
 
 const emptyIcons = { photos: Images, archive: Archive, trash: Trash2 } as const;
 
+const sortOptions: Array<{ value: PhotoSort; label: string }> = [
+  { value: "newest", label: "Newest first" },
+  { value: "oldest", label: "Oldest first" },
+  { value: "name", label: "File name" },
+  { value: "largest", label: "Largest file" },
+];
+
+function useDebounced<T>(value: T, delay: number): T {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebounced(value), delay);
+    return () => window.clearTimeout(timer);
+  }, [value, delay]);
+  return debounced;
+}
+
 export function PhotoLibraryView({
   title,
   description,
@@ -52,6 +69,8 @@ export function PhotoLibraryView({
   const EmptyIcon = emptyIcons[emptyIcon];
   const [importOpen, setImportOpen] = useState(false);
   const [filter, setFilter] = useState("");
+  const [sort, setSort] = useState<PhotoSort>("newest");
+  const query = useDebounced(filter.trim(), 300);
   const {
     data,
     isLoading,
@@ -62,7 +81,7 @@ export function PhotoLibraryView({
     isFetchingNextPage,
     hasNextPage,
     fetchNextPage,
-  } = usePhotos(status);
+  } = usePhotos(status, { q: query, sort });
   const isSelectMode = usePhotoSelectionStore((state) => state.isSelectMode);
   const enterSelectMode = usePhotoSelectionStore((state) => state.enterSelectMode);
   const exitSelectMode = usePhotoSelectionStore((state) => state.exitSelectMode);
@@ -70,16 +89,8 @@ export function PhotoLibraryView({
 
   const photos = useMemo(() => data?.pages.flatMap((page) => page.content) ?? [], [data]);
   const totalPhotos = data?.pages[0]?.totalElements ?? 0;
-
-  const normalizedFilter = filter.trim().toLowerCase();
-  const visiblePhotos = useMemo(
-    () =>
-      normalizedFilter
-        ? photos.filter((photo) => photo.fileName.toLowerCase().includes(normalizedFilter))
-        : photos,
-    [photos, normalizedFilter],
-  );
-  const visibleIds = useMemo(() => visiblePhotos.map((photo) => photo.id), [visiblePhotos]);
+  const searching = query.length > 0;
+  const visibleIds = useMemo(() => photos.map((photo) => photo.id), [photos]);
 
   const context = useMemo<PhotoContext>(() => ({ kind: "library", status }), [status]);
 
@@ -87,7 +98,7 @@ export function PhotoLibraryView({
     () => {
       if (hasNextPage && !isFetchingNextPage) fetchNextPage();
     },
-    { enabled: !!hasNextPage && !normalizedFilter },
+    { enabled: !!hasNextPage },
   );
 
   // Keyboard: Esc leaves selection, Cmd/Ctrl+A selects everything visible while selecting.
@@ -110,9 +121,11 @@ export function PhotoLibraryView({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [exitSelectMode, isSelectMode, selectAll, visibleIds]);
 
-  const isEmpty = !isLoading && !isError && photos.length === 0;
+  // The library is only "empty" when nothing is there at all, not when a search finds nothing.
+  const isEmpty = !isLoading && !isError && photos.length === 0 && !searching;
+  const noMatches = !isLoading && !isError && photos.length === 0 && searching;
   const countLabel =
-    totalPhotos > 0
+    totalPhotos > 0 && !searching
       ? `${totalPhotos} ${totalPhotos === 1 ? "photo" : "photos"}`
       : description;
 
@@ -149,7 +162,7 @@ export function PhotoLibraryView({
 
       {showUpload && <ImportImageKitDialog open={importOpen} onOpenChange={setImportOpen} />}
 
-      {photos.length > 0 && (
+      {(photos.length > 0 || searching || sort !== "newest") && (
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="relative w-full sm:max-w-xs">
             <Search
@@ -160,9 +173,9 @@ export function PhotoLibraryView({
               type="search"
               value={filter}
               onChange={(event) => setFilter(event.target.value)}
-              placeholder="Filter loaded photos by file name"
-              aria-label="Filter loaded photos by file name"
-              className="pl-8 pr-8"
+              placeholder="Search by file name"
+              aria-label="Search by file name"
+              className="pl-8 pr-8 [&::-webkit-search-cancel-button]:appearance-none"
             />
             {filter && (
               <button
@@ -175,11 +188,23 @@ export function PhotoLibraryView({
               </button>
             )}
           </div>
-          <p className="text-xs text-muted-foreground tabular-nums">
-            {normalizedFilter
-              ? `${visiblePhotos.length} of ${photos.length} loaded match`
-              : `Showing ${photos.length} of ${totalPhotos}`}
-          </p>
+          <div className="flex items-center gap-3">
+            <p className="text-xs text-muted-foreground tabular-nums">
+              {searching
+                ? `${totalPhotos} ${totalPhotos === 1 ? "match" : "matches"}`
+                : `Showing ${photos.length} of ${totalPhotos}`}
+            </p>
+            <NativeSelect size="sm" className="w-36" value={sort}
+                onChange={(event) => setSort(event.target.value as PhotoSort)}
+                aria-label="Sort photos"
+              >
+                {sortOptions.map((option) => (
+                  <NativeSelectOption key={option.value} value={option.value}>
+                    {option.label}
+                  </NativeSelectOption>
+                ))}
+              </NativeSelect>
+          </div>
         </div>
       )}
 
@@ -216,15 +241,15 @@ export function PhotoLibraryView({
         </Empty>
       ) : (
         <>
-          {visiblePhotos.length === 0 ? (
+          {noMatches ? (
             <p className="py-12 text-center text-sm text-muted-foreground">
-              No loaded photos match “{filter.trim()}”.
+              No photos match “{query}”.
             </p>
           ) : (
-            <PhotoGrid photos={visiblePhotos} context={context} isLoading={isLoading} selectable />
+            <PhotoGrid photos={photos} context={context} isLoading={isLoading} selectable />
           )}
 
-          {!normalizedFilter && (
+          {!noMatches && (
             <div ref={sentinelRef} className="flex justify-center py-2">
               {isFetchingNextPage ? (
                 <span className="inline-flex items-center gap-2 text-sm text-muted-foreground">

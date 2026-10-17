@@ -56,6 +56,75 @@ export type Photo = {
   deletedAt: string | null;
   parentPhotoId: string | null;
   aiTransformType: AiTransformType | null;
+  /** ImageKit transformation chain that produced this photo from its parent. */
+  editChain: string | null;
+};
+
+/** Operations accepted by the edit pipeline; mirrors the backend EditOp enum. */
+export type EditOp =
+  | "CROP"
+  | "ASPECT_CROP"
+  | "RESIZE"
+  | "ROTATE"
+  | "FLIP"
+  | "GRAYSCALE"
+  | "BLUR"
+  | "SHARPEN"
+  | "CONTRAST"
+  | "RADIUS"
+  | "ROUND"
+  | "BORDER"
+  | "OPACITY"
+  | "TRIM"
+  | AiTransformType;
+
+export type EditStep = {
+  op: EditOp;
+  x?: number;
+  y?: number;
+  width?: number;
+  height?: number;
+  aspectRatio?: string;
+  focus?: string;
+  fit?: string;
+  rotation?: number;
+  direction?: string;
+  amount?: number;
+  color?: string;
+  prompt?: string;
+  focusObject?: string;
+};
+
+export type EditOutput = {
+  format?: string;
+  quality?: number;
+};
+
+export type EditRequest = {
+  steps: EditStep[];
+  output?: EditOutput;
+};
+
+export type EditPreviewResponse = {
+  previewUrl: string;
+  downloadUrl: string;
+  transformChain: string;
+  usesAi: boolean;
+};
+
+export type PhotoVersions = {
+  parent: Photo | null;
+  derived: Photo[];
+};
+
+export type PhotoSort = "newest" | "oldest" | "name" | "largest";
+
+export type PhotoListParams = {
+  status?: PhotoStatus;
+  page?: number;
+  size?: number;
+  q?: string;
+  sort?: PhotoSort;
 };
 
 export type AiTransformRequest = {
@@ -312,8 +381,26 @@ export const api = {
 
   getPhoto: (photoId: string) => request<Photo>(`/photos/${photoId}`),
 
-  getPhotos: (status: PhotoStatus = "ACTIVE", page = 0, size = 24) =>
-    request<PageResponse<Photo>>(`/photos?status=${status}&page=${page}&size=${size}`),
+  getPhotos: ({ status = "ACTIVE", page = 0, size = 24, q, sort }: PhotoListParams = {}) => {
+    const params = new URLSearchParams({ status, page: String(page), size: String(size) });
+    if (q && q.trim()) params.set("q", q.trim());
+    if (sort && sort !== "newest") params.set("sort", sort);
+    return request<PageResponse<Photo>>(`/photos?${params.toString()}`);
+  },
+
+  getPhotoVersions: (photoId: string) => request<PhotoVersions>(`/photos/${photoId}/versions`),
+
+  previewEdit: (photoId: string, body: EditRequest) =>
+    request<EditPreviewResponse>(`/photos/${photoId}/edits/preview`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  applyEdit: (photoId: string, body: EditRequest) =>
+    request<Photo>(`/photos/${photoId}/edits/apply`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
 
   archivePhotos: (photoIds: string[]) =>
     request<void>("/photos/archive", { method: "POST", body: JSON.stringify({ photoIds }) }),

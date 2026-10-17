@@ -1,4 +1,4 @@
-import type { PhotoStatus } from "@/lib/api";
+import type { EditRequest, PhotoSort, PhotoStatus } from "@/lib/api";
 
 export const authKeys = {
   all: ["auth"] as const,
@@ -8,8 +8,12 @@ export const authKeys = {
 export const photoKeys = {
   all: ["photos"] as const,
   lists: () => [...photoKeys.all, "list"] as const,
-  list: (status: PhotoStatus) => [...photoKeys.lists(), status] as const,
+  list: (status: PhotoStatus, q = "", sort: PhotoSort = "newest") =>
+    [...photoKeys.lists(), status, q, sort] as const,
   detail: (photoId: string) => [...photoKeys.all, "detail", photoId] as const,
+  versions: (photoId: string) => [...photoKeys.all, "versions", photoId] as const,
+  editPreview: (photoId: string, body: EditRequest) =>
+    [...photoKeys.all, "edit-preview", photoId, body] as const,
 };
 
 export const libraryKeys = {

@@ -27,6 +27,7 @@ import project.backend.dto.BulkPhotoActionRequest;
 import project.backend.dto.CreatePhotoRequest;
 import project.backend.dto.PageResponse;
 import project.backend.dto.PhotoResponse;
+import project.backend.dto.PhotoVersionsResponse;
 import project.backend.services.PhotoService;
 import project.backend.services.UserService;
 
@@ -56,15 +57,37 @@ public class PhotoController {
             @AuthenticationPrincipal UserDetails userDetails,
             @RequestParam(defaultValue = "ACTIVE") PhotoStatus status,
             @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "24") int size
+            @RequestParam(defaultValue = "24") int size,
+            @RequestParam(required = false) String q,
+            @RequestParam(defaultValue = "newest") String sort
     ) {
         User user = userService.getByEmail(userDetails.getUsername());
         PageResponse<PhotoResponse> photos = photoService.listPhotos(
                 user,
                 status,
-                PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"))
+                q,
+                PageRequest.of(page, Math.min(Math.max(size, 1), 100), sortFor(sort))
         );
         return ResponseEntity.ok(photos);
+    }
+
+    /** Whitelisted sort orders so the query string can't address arbitrary columns. */
+    private static Sort sortFor(String sort) {
+        return switch (sort == null ? "newest" : sort.toLowerCase()) {
+            case "oldest" -> Sort.by(Sort.Direction.ASC, "createdAt");
+            case "name" -> Sort.by(Sort.Direction.ASC, "fileName").and(Sort.by(Sort.Direction.DESC, "createdAt"));
+            case "largest" -> Sort.by(Sort.Direction.DESC, "sizeBytes").and(Sort.by(Sort.Direction.DESC, "createdAt"));
+            default -> Sort.by(Sort.Direction.DESC, "createdAt");
+        };
+    }
+
+    @GetMapping("/photos/{id}/versions")
+    public ResponseEntity<PhotoVersionsResponse> getVersions(
+            @AuthenticationPrincipal UserDetails userDetails,
+            @PathVariable UUID id
+    ) {
+        User user = userService.getByEmail(userDetails.getUsername());
+        return ResponseEntity.ok(photoService.getVersions(user, id));
     }
 
     @PostMapping(value = "/photos/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)

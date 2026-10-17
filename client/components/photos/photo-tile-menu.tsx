@@ -2,12 +2,14 @@
 
 import {
   Archive,
+  Download,
   ExternalLink,
   FolderMinus,
   FolderPlus,
   Maximize2,
   MoreHorizontal,
   RotateCcw,
+  SlidersHorizontal,
   Star,
   Trash2,
 } from "lucide-react";
@@ -22,6 +24,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import type { Photo } from "@/lib/api";
+import { downloadUrl } from "@/lib/download";
 
 /** Actions the grid owns (dialogs and mutations) and passes down to each tile. */
 export type PhotoTileMenuHandlers = {
@@ -65,11 +68,23 @@ export function PhotoTileMenu({ photo, context, handlers }: PhotoTileMenuProps) 
           <Maximize2 />
           Open
         </DropdownMenuItem>
+        {status !== "TRASH" && (
+          <DropdownMenuItem
+            onClick={() => router.push(photoHref(photo.id, context).replace(`/photos/${photo.id}`, `/photos/${photo.id}/edit`))}
+          >
+            <SlidersHorizontal />
+            Edit
+          </DropdownMenuItem>
+        )}
         <DropdownMenuItem
           onClick={() => window.open(photo.url, "_blank", "noopener,noreferrer")}
         >
           <ExternalLink />
           Open original
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => downloadUrl(photo.url, photo.fileName)}>
+          <Download />
+          Download
         </DropdownMenuItem>
 
         {status === "ACTIVE" && (
