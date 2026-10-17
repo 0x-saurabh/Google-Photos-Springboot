@@ -14,6 +14,7 @@ import {
   Info,
   RotateCcw,
   Trash2,
+  WandSparkles,
 } from "lucide-react";
 import { AddToAlbumDialog } from "@/components/albums/add-to-album-dialog";
 import {
@@ -67,6 +68,11 @@ export function PhotoViewer({ photoId, context }: PhotoViewerProps) {
   const infoOpen = useViewerStore((state) => state.infoOpen);
   const setInfoOpen = useViewerStore((state) => state.setInfoOpen);
   const toggleInfo = useViewerStore((state) => state.toggleInfo);
+  const aiPreview = useViewerStore((state) => state.aiPreview);
+  const setAiPreview = useViewerStore((state) => state.setAiPreview);
+  const showOriginal = useViewerStore((state) => state.showOriginal);
+  const setShowOriginal = useViewerStore((state) => state.setShowOriginal);
+  const activePreview = aiPreview?.photoId === photoId ? aiPreview : null;
   const [addToAlbumOpen, setAddToAlbumOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
@@ -112,6 +118,22 @@ export function PhotoViewer({ photoId, context }: PhotoViewerProps) {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [backHref, goTo, infoOpen, isMobile, next, previous, router, setInfoOpen, toggleInfo]);
+
+  // A preview belongs to one photo; drop it when leaving that photo.
+  useEffect(() => {
+    return () => {
+      const current = useViewerStore.getState().aiPreview;
+      if (current && current.photoId !== photoId) useViewerStore.getState().setAiPreview(null);
+    };
+  }, [photoId]);
+
+  /** Opens the details panel and scrolls to the AI editor. */
+  const openAiEditor = useCallback(() => {
+    setInfoOpen(true);
+    window.setTimeout(() => {
+      document.getElementById("ai-editor")?.scrollIntoView({ block: "start", behavior: "smooth" });
+    }, 50);
+  }, [setInfoOpen]);
 
   // Warm the cache for the neighbours so stepping feels instant.
   useEffect(() => {
@@ -230,6 +252,24 @@ export function PhotoViewer({ photoId, context }: PhotoViewerProps) {
               <TooltipContent>Open original</TooltipContent>
             </Tooltip>
           )}
+          {photo && photo.status !== "TRASH" && (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    className={stageButton}
+                    aria-label="Edit with AI"
+                    onClick={openAiEditor}
+                  />
+                }
+              >
+                <WandSparkles />
+              </TooltipTrigger>
+              <TooltipContent>Edit with AI</TooltipContent>
+            </Tooltip>
+          )}
           <Tooltip>
             <TooltipTrigger
               render={
@@ -266,18 +306,52 @@ export function PhotoViewer({ photoId, context }: PhotoViewerProps) {
               />
             </div>
           ) : (
-            <Image
-              key={photo.id}
-              src={photo.url}
-              alt={photo.fileName}
-              width={photo.width ?? 1600}
-              height={photo.height ?? 1200}
-              sizes="100vw"
-              className="max-h-full w-auto max-w-full object-contain select-none animate-in fade-in-0 duration-300"
-              unoptimized
-              priority
-              draggable={false}
-            />
+            <>
+              <Image
+                key={activePreview && !showOriginal ? activePreview.url : photo.id}
+                src={activePreview && !showOriginal ? activePreview.url : photo.url}
+                alt={activePreview && !showOriginal ? `${activePreview.label} preview of ${photo.fileName}` : photo.fileName}
+                width={photo.width ?? 1600}
+                height={photo.height ?? 1200}
+                sizes="100vw"
+                className="max-h-full w-auto max-w-full object-contain select-none animate-in fade-in-0 duration-300"
+                unoptimized
+                priority
+                draggable={false}
+              />
+              {activePreview && (
+                <div
+                  className="absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-full border border-white/15 bg-black/60 p-1 text-xs text-stage-foreground backdrop-blur-sm"
+                  role="group"
+                  aria-label="Preview comparison"
+                >
+                  <button
+                    type="button"
+                    onClick={() => setShowOriginal(true)}
+                    aria-pressed={showOriginal}
+                    className={cn("rounded-full px-3 py-1 transition-colors", showOriginal ? "bg-white/20" : "hover:bg-white/10")}
+                  >
+                    Original
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowOriginal(false)}
+                    aria-pressed={!showOriginal}
+                    className={cn("rounded-full px-3 py-1 transition-colors", !showOriginal ? "bg-white/20" : "hover:bg-white/10")}
+                  >
+                    {activePreview.label} preview
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAiPreview(null)}
+                    aria-label="Discard preview"
+                    className="rounded-full px-2 py-1 text-stage-foreground/70 hover:bg-white/10 hover:text-stage-foreground"
+                  >
+                    ×
+                  </button>
+                </div>
+              )}
+            </>
           )}
 
           {previous && (
@@ -305,7 +379,7 @@ export function PhotoViewer({ photoId, context }: PhotoViewerProps) {
         </div>
 
         {!isMobile && infoOpen && panel && (
-          <aside className="scrollbar-thin w-80 shrink-0 overflow-y-auto border-l border-border bg-background p-5 text-foreground animate-in slide-in-from-right-4 fade-in-0 duration-200">
+          <aside className="scrollbar-thin w-80 shrink-0 overflow-y-auto border-l border-border bg-background p-5 pb-32 text-foreground animate-in slide-in-from-right-4 fade-in-0 duration-200">
             {panel}
           </aside>
         )}

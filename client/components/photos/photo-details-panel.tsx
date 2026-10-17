@@ -56,10 +56,13 @@ export function PhotoDetailsPanel({ photo }: { photo: Photo }) {
         </dl>
       </section>
 
-      {photo.status === "ACTIVE" && (
+      {/* The API allows edits on any owned photo; trashed ones are left alone on purpose. */}
+      {photo.status !== "TRASH" && (
         <>
           <Separator />
-          <PhotoAiEditor photoId={photo.id} />
+          <div id="ai-editor">
+            <PhotoAiEditor key={photo.id} photo={photo} />
+          </div>
         </>
       )}
     </div>
