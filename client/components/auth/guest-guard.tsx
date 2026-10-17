@@ -3,16 +3,18 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Spinner } from "@/components/ui/spinner";
-import { useAuth } from "@/hooks/use-auth";
+import { postLoginDestination, useAuth } from "@/hooks/use-auth";
 import { useAuthStore } from "@/stores/auth-store";
 
 type GuestGuardProps = {
   children: React.ReactNode;
-  redirectTo?: string;
 };
 
-/** For login/register pages — redirect away if already logged in. */
-export function GuestGuard({ children, redirectTo = "/" }: GuestGuardProps) {
+/**
+ * For login/register pages — redirect away if already logged in.
+ * Honors the same `?next=` target as the login flow so both agree.
+ */
+export function GuestGuard({ children }: GuestGuardProps) {
   const router = useRouter();
   const { isReady, isLoggedIn } = useAuth();
   const setReady = useAuthStore((state) => state.setReady);
@@ -32,14 +34,18 @@ export function GuestGuard({ children, redirectTo = "/" }: GuestGuardProps) {
 
   useEffect(() => {
     if (isReady && isLoggedIn) {
-      router.replace(redirectTo);
+      router.replace(postLoginDestination());
     }
-  }, [isReady, isLoggedIn, redirectTo, router]);
+  }, [isReady, isLoggedIn, router]);
 
   if (!isReady || isLoggedIn) {
     return (
-      <div className="flex min-h-full items-center justify-center bg-background text-muted-foreground">
-        <Spinner className="size-6" />
+      <div
+        className="flex min-h-svh items-center justify-center bg-background text-muted-foreground"
+        role="status"
+        aria-label="Loading"
+      >
+        <Spinner className="size-5" />
       </div>
     );
   }

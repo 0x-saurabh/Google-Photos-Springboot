@@ -3,6 +3,7 @@
 import { FolderOpen } from "lucide-react";
 import { AlbumGrid } from "@/components/albums/album-grid";
 import { CreateAlbumDialog } from "@/components/albums/create-album-dialog";
+import { PageHeader } from "@/components/layout/page-header";
 import {
   Empty,
   EmptyContent,
@@ -11,38 +12,44 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "@/components/ui/empty";
+import { ErrorState } from "@/components/ui/error-state";
 import { useAlbums } from "@/hooks/use-albums";
 
 export default function AlbumsPage() {
-  const { data: albums = [], isLoading } = useAlbums();
+  const { data: albums = [], isLoading, isError, error, refetch, isRefetching } = useAlbums();
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-        <div className="min-w-0">
-          <h2 className="text-2xl font-semibold tracking-tight text-foreground">Albums</h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {albums.length > 0
-              ? `${albums.length} album${albums.length === 1 ? "" : "s"}`
-              : "Create albums to organize your photos"}
-          </p>
-        </div>
-        <CreateAlbumDialog />
-      </div>
+      <PageHeader
+        title="Albums"
+        description={
+          albums.length > 0
+            ? `${albums.length} ${albums.length === 1 ? "album" : "albums"}`
+            : "Group photos by trip, event or theme"
+        }
+        actions={<CreateAlbumDialog />}
+      />
 
-      {albums.length === 0 && !isLoading ? (
-        <Empty className="border border-dashed border-border/80 bg-card/40">
+      {isError ? (
+        <ErrorState
+          title="Couldn't load your albums"
+          description={error instanceof Error ? error.message : undefined}
+          onRetry={() => refetch()}
+          retrying={isRefetching}
+        />
+      ) : albums.length === 0 && !isLoading ? (
+        <Empty className="border border-dashed border-border py-16">
           <EmptyHeader>
-            <EmptyMedia variant="icon">
+            <EmptyMedia variant="icon" className="size-10 rounded-xl bg-accent text-accent-foreground [&_svg]:size-5">
               <FolderOpen />
             </EmptyMedia>
-            <EmptyTitle>No albums yet</EmptyTitle>
+            <EmptyTitle className="text-base">No albums yet</EmptyTitle>
             <EmptyDescription>
-              Albums help you group photos by event, trip, or theme.
+              Create an album, then add photos to it from the library or from the album itself.
             </EmptyDescription>
           </EmptyHeader>
           <EmptyContent>
-            <CreateAlbumDialog />
+            <CreateAlbumDialog size="default" />
           </EmptyContent>
         </Empty>
       ) : (

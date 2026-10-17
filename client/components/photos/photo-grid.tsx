@@ -1,135 +1,145 @@
 "use client";
 
-import Link from "next/link";
-import Image from "next/image";
-import { Trash2 } from "lucide-react";
-import { AspectRatio } from "@/components/ui/aspect-ratio";
-import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Skeleton } from "@/components/ui/skeleton";
-import { useRemovePhotoFromAlbum } from "@/hooks/use-albums";
-import { useTrashPhotos } from "@/hooks/use-photos";
+import { useCallback, useMemo, useState } from "react";
+import { AddToAlbumDialog } from "@/components/albums/add-to-album-dialog";
+import type { PhotoContext } from "@/components/photos/photo-context";
+import { PhotoTile, PhotoTileSkeleton } from "@/components/photos/photo-tile";
+import type { PhotoTileMenuHandlers } from "@/components/photos/photo-tile-menu";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { useRemovePhotoFromAlbum, useUpdateAlbum } from "@/hooks/use-albums";
+import {
+  useArchivePhotos,
+  usePermanentlyDeletePhotos,
+  useRestorePhotos,
+  useTrashPhotos,
+} from "@/hooks/use-photos";
 import type { Photo } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { usePhotoSelectionStore } from "@/stores/photo-selection-store";
 
 type PhotoGridProps = {
   photos: Photo[];
+  context: PhotoContext;
   isLoading?: boolean;
   selectable?: boolean;
-  showTrashAction?: boolean;
-  albumId?: string;
+  skeletonCount?: number;
+  className?: string;
 };
+
+const gridClass =
+  "grid grid-cols-2 gap-1.5 sm:grid-cols-3 sm:gap-2 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7";
 
 export function PhotoGrid({
   photos,
-  isLoading,
+  context,
+  isLoading = false,
   selectable = false,
-  showTrashAction = false,
-  albumId,
+  skeletonCount = 18,
+  className,
 }: PhotoGridProps) {
-  const trashMutation = useTrashPhotos();
-  const removeFromAlbumMutation = useRemovePhotoFromAlbum(albumId ?? "");
   const isSelectMode = usePhotoSelectionStore((state) => state.isSelectMode);
   const selectedIds = usePhotoSelectionStore((state) => state.selectedIds);
   const togglePhoto = usePhotoSelectionStore((state) => state.togglePhoto);
+  const selectRange = usePhotoSelectionStore((state) => state.selectRange);
+
+  const archive = useArchivePhotos();
+  const trash = useTrashPhotos();
+  const restore = useRestorePhotos();
+  const deleteForever = usePermanentlyDeletePhotos();
+  const albumId = context.kind === "album" ? context.albumId : "";
+  const removeFromAlbum = useRemovePhotoFromAlbum(albumId);
+  const updateAlbum = useUpdateAlbum(albumId);
+
+  const [albumTarget, setAlbumTarget] = useState<Photo | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Photo | null>(null);
+
+  const orderedIds = useMemo(() => photos.map((photo) => photo.id), [photos]);
+  const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
+
+  const onToggle = useCallback(
+    (photo: Photo, shiftKey: boolean) => {
+      if (shiftKey) {
+        selectRange(photo.id, orderedIds);
+      } else {
+        togglePhoto(photo.id);
+      }
+    },
+    [orderedIds, selectRange, togglePhoto],
+  );
+
+  const handlers = useMemo<PhotoTileMenuHandlers>(
+    () => ({
+      onAddToAlbum: (photo) => setAlbumTarget(photo),
+      onArchive: (photo) => archive.mutate([photo.id]),
+      onTrash: (photo) => trash.mutate([photo.id]),
+      onRestore: (photo) => restore.mutate([photo.id]),
+      onDeleteForever: (photo) => setDeleteTarget(photo),
+      onSetCover: (photo) => updateAlbum.mutate({ coverPhotoId: photo.id }),
+      onRemoveFromAlbum: (photo) => removeFromAlbum.mutate(photo.id),
+    }),
+    [archive, trash, restore, updateAlbum, removeFromAlbum],
+  );
 
   if (isLoading) {
     return (
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
-        {Array.from({ length: 12 }).map((_, index) => (
-          <Skeleton key={index} className="aspect-square rounded-xl" />
+      <div className={cn(gridClass, className)} aria-busy="true" aria-label="Loading photos">
+        {Array.from({ length: skeletonCount }).map((_, index) => (
+          <PhotoTileSkeleton key={index} />
         ))}
       </div>
     );
   }
 
   return (
-    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
-      {photos.map((photo) => {
-        const isSelected = selectedIds.includes(photo.id);
-
-        return (
-          <article
+    <>
+      <div
+        className={cn(gridClass, className)}
+        role={selectable ? "group" : undefined}
+        aria-label={selectable ? "Photos" : undefined}
+      >
+        {photos.map((photo, index) => (
+          <PhotoTile
             key={photo.id}
-            className={cn(
-              "group relative overflow-hidden rounded-xl border bg-card/40 transition-colors",
-              isSelected ? "border-primary ring-2 ring-primary/40" : "border-border/60",
-            )}
-          >
-            <AspectRatio ratio={1}>
-              <Image
-                src={photo.thumbnailUrl ?? photo.url}
-                alt={photo.fileName}
-                fill
-                sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 16vw"
-                className="object-cover transition-transform duration-300 group-hover:scale-105"
-                unoptimized
-              />
-            </AspectRatio>
+            photo={photo}
+            context={context}
+            selectable={selectable}
+            isSelectMode={isSelectMode}
+            isSelected={selectedSet.has(photo.id)}
+            onToggle={onToggle}
+            handlers={handlers}
+            priority={index < 6}
+          />
+        ))}
+      </div>
 
-            <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent p-2 opacity-0 transition-opacity group-hover:opacity-100">
-              <p className="truncate text-xs text-white">{photo.fileName}</p>
-            </div>
+      <AddToAlbumDialog
+        open={albumTarget !== null}
+        onOpenChange={(open) => !open && setAlbumTarget(null)}
+        photoIds={albumTarget ? [albumTarget.id] : []}
+      />
 
-            {!isSelectMode && !albumId && (
-              <Link
-                href={`/photos/${photo.id}`}
-                className="absolute inset-0 z-10"
-                aria-label={`Open ${photo.fileName}`}
-              />
-            )}
-
-            {selectable && isSelectMode && (
-              <div
-                role="button"
-                tabIndex={0}
-                className="absolute inset-0 z-10 cursor-pointer"
-                onClick={() => togglePhoto(photo.id)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" || event.key === " ") {
-                    event.preventDefault();
-                    togglePhoto(photo.id);
-                  }
-                }}
-                aria-label={`Select ${photo.fileName}`}
-              >
-                <div className="pointer-events-none absolute top-2 left-2">
-                  <Checkbox checked={isSelected} className="bg-background/90" />
-                </div>
-              </div>
-            )}
-
-            {showTrashAction && !isSelectMode && (
-              <Button
-                type="button"
-                variant="destructive"
-                size="icon-xs"
-                className="absolute top-2 right-2 z-20 opacity-0 transition-opacity group-hover:opacity-100"
-                disabled={trashMutation.isPending}
-                onClick={() => trashMutation.mutate([photo.id])}
-                aria-label={`Move ${photo.fileName} to trash`}
-              >
-                <Trash2 className="size-3.5" />
-              </Button>
-            )}
-
-            {albumId && !isSelectMode && (
-              <Button
-                type="button"
-                variant="secondary"
-                size="icon-xs"
-                className="absolute top-2 right-2 z-20 opacity-0 transition-opacity group-hover:opacity-100"
-                disabled={removeFromAlbumMutation.isPending}
-                onClick={() => removeFromAlbumMutation.mutate(photo.id)}
-                aria-label={`Remove ${photo.fileName} from album`}
-              >
-                <Trash2 className="size-3.5" />
-              </Button>
-            )}
-          </article>
-        );
-      })}
-    </div>
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        onOpenChange={(open) => !open && setDeleteTarget(null)}
+        title="Delete photo forever?"
+        description={
+          deleteTarget ? (
+            <>
+              <span className="font-medium text-foreground">{deleteTarget.fileName}</span> will be
+              removed from Pixora and from ImageKit. This cannot be undone.
+            </>
+          ) : null
+        }
+        confirmLabel="Delete forever"
+        destructive
+        pending={deleteForever.isPending}
+        onConfirm={() => {
+          if (!deleteTarget) return;
+          deleteForever.mutate([deleteTarget.id], {
+            onSettled: () => setDeleteTarget(null),
+          });
+        }}
+      />
+    </>
   );
 }

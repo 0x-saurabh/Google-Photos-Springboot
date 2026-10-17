@@ -1,59 +1,64 @@
 "use client";
 
 import Link from "next/link";
-import Image from "next/image";
-import { FolderOpen } from "lucide-react";
-import { AspectRatio } from "@/components/ui/aspect-ratio";
-import { Skeleton } from "@/components/ui/skeleton";
+import { AlbumCoverImage } from "@/components/albums/album-cover-image";
 import type { Album } from "@/lib/api";
+import { formatRelative } from "@/lib/format-date";
+import { cn } from "@/lib/utils";
 
 type AlbumGridProps = {
   albums: Album[];
   isLoading?: boolean;
+  className?: string;
 };
 
-export function AlbumGrid({ albums, isLoading }: AlbumGridProps) {
+const gridClass = "grid grid-cols-2 gap-x-4 gap-y-6 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5";
+
+export function AlbumCard({ album }: { album: Album }) {
+  return (
+    <Link
+      href={`/albums/${album.id}`}
+      className="group block rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+    >
+      <div className="relative aspect-[4/3] overflow-hidden rounded-xl bg-muted shadow-photo transition-shadow duration-200 group-hover:shadow-float">
+        <AlbumCoverImage
+          src={album.coverThumbnailUrl}
+          sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 20vw"
+          className="transition-transform duration-500 ease-out group-hover:scale-[1.03]"
+        />
+      </div>
+      <div className="mt-2.5 px-0.5">
+        <h3 className="truncate text-sm font-medium text-foreground">{album.title}</h3>
+        <p className="mt-0.5 text-xs text-muted-foreground">
+          {album.photoCount} {album.photoCount === 1 ? "photo" : "photos"}
+          <span aria-hidden="true"> · </span>
+          <span className="sr-only">, updated </span>
+          {formatRelative(album.updatedAt)}
+        </p>
+      </div>
+    </Link>
+  );
+}
+
+export function AlbumGrid({ albums, isLoading, className }: AlbumGridProps) {
   if (isLoading) {
     return (
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+      <div className={cn(gridClass, className)} aria-busy="true" aria-label="Loading albums">
         {Array.from({ length: 8 }).map((_, index) => (
-          <Skeleton key={index} className="aspect-[4/3] rounded-xl" />
+          <div key={index} aria-hidden="true">
+            <div className="aspect-[4/3] animate-pulse rounded-xl bg-muted" />
+            <div className="mt-2.5 h-3.5 w-2/3 animate-pulse rounded bg-muted" />
+            <div className="mt-1.5 h-3 w-1/3 animate-pulse rounded bg-muted" />
+          </div>
         ))}
       </div>
     );
   }
 
   return (
-    <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+    <div className={cn(gridClass, className)}>
       {albums.map((album) => (
-        <Link
-          key={album.id}
-          href={`/albums/${album.id}`}
-          className="group overflow-hidden rounded-xl border border-border/60 bg-card/40 transition-colors hover:border-primary/40"
-        >
-          <AspectRatio ratio={4 / 3} className="bg-muted/40">
-            {album.coverThumbnailUrl ? (
-              <Image
-                src={album.coverThumbnailUrl}
-                alt={album.title}
-                fill
-                sizes="(max-width: 640px) 50vw, 25vw"
-                className="object-cover transition-transform duration-300 group-hover:scale-105"
-                unoptimized
-              />
-            ) : (
-              <div className="flex h-full items-center justify-center text-muted-foreground">
-                <FolderOpen className="size-10 opacity-50" />
-              </div>
-            )}
-          </AspectRatio>
-          <div className="space-y-1 p-3">
-            <h3 className="truncate font-medium text-foreground">{album.title}</h3>
-            <p className="text-xs text-muted-foreground">
-              {album.photoCount} photo{album.photoCount === 1 ? "" : "s"}
-            </p>
-          </div>
-        </Link>
+        <AlbumCard key={album.id} album={album} />
       ))}
     </div>
   );

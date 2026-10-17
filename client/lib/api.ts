@@ -101,6 +101,11 @@ export type Album = {
   updatedAt: string;
 };
 
+export type UpdateAlbumRequest = {
+  title?: string;
+  coverPhotoId?: string;
+};
+
 export type PageResponse<T> = {
   content: T[];
   page: number;
@@ -110,42 +115,169 @@ export type PageResponse<T> = {
   last: boolean;
 };
 
+export class ApiError extends Error {
+  status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * Session handling
+ *
+ * The backend issues short-lived access tokens (15 minutes) and rotating
+ * refresh tokens. We decode the access token's `exp` claim (no verification is
+ * needed for scheduling) and refresh shortly before it expires, or retry once
+ * after an unauthenticated response. Refreshes are single-flight so parallel
+ * requests share one call; the backend invalidates the old refresh token on use.
+ * ------------------------------------------------------------------------- */
+
+const EXPIRY_SKEW_MS = 30_000;
+
+function decodeJwtExpiry(token: string): number | null {
+  try {
+    const [, payload] = token.split(".");
+    if (!payload) return null;
+    const normalized = payload.replace(/-/g, "+").replace(/_/g, "/");
+    const json = JSON.parse(atob(normalized)) as { exp?: unknown };
+    return typeof json.exp === "number" ? json.exp * 1000 : null;
+  } catch {
+    return null;
+  }
+}
+
+let refreshInFlight: Promise<string | null> | null = null;
+
+function isExpiredByClock(token: string | null): boolean {
+  if (!token) return true;
+  const expiresAt = decodeJwtExpiry(token);
+  return expiresAt !== null && expiresAt - Date.now() <= EXPIRY_SKEW_MS;
+}
+
+/**
+ * Exchanges the refresh token for a new pair. Resolves to the new access token,
+ * or null when the session is gone. Because the backend rotates refresh tokens,
+ * a failure first checks whether another tab already refreshed and reuses that
+ * session instead of signing the user out.
+ */
+async function refreshAccessToken(): Promise<string | null> {
+  if (refreshInFlight) return refreshInFlight;
+
+  refreshInFlight = (async () => {
+    const { refreshToken, setAuth, clearAuth } = useAuthStore.getState();
+    if (!refreshToken) return null;
+
+    try {
+      const response = await fetch(`${API_URL}/auth/refresh`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ refreshToken }),
+      });
+
+      if (response.ok) {
+        const data = normalizeAuthResponse((await response.json()) as AuthResponsePayload);
+        setAuth(data);
+        return data.accessToken;
+      }
+
+      if (response.status >= 500) {
+        // Backend trouble, not an invalid session: keep what we have.
+        return useAuthStore.getState().accessToken;
+      }
+
+      // The refresh token was rejected. Another tab may have rotated it already.
+      await useAuthStore.persist?.rehydrate?.();
+      const latest = useAuthStore.getState();
+      if (latest.refreshToken && latest.refreshToken !== refreshToken && !isExpiredByClock(latest.accessToken)) {
+        return latest.accessToken;
+      }
+
+      clearAuth();
+      return null;
+    } catch {
+      // Network failure: keep the current session and let the caller surface the error.
+      return useAuthStore.getState().accessToken;
+    } finally {
+      refreshInFlight = null;
+    }
+  })();
+
+  return refreshInFlight;
+}
+
+/** Returns a usable access token, refreshing first if it is about to expire. */
+export async function getValidAccessToken(): Promise<string | null> {
+  const { accessToken, refreshToken } = useAuthStore.getState();
+  if (!accessToken) return null;
+  if (!isExpiredByClock(accessToken) || !refreshToken) return accessToken;
+  return refreshAccessToken();
+}
+
+/**
+ * Spring Security answers 403 both for a missing/expired token and for the
+ * error dispatch of an unhandled server exception. Only treat it as an auth
+ * failure when our token is actually stale; otherwise it's a server error.
+ */
+function looksLikeAuthFailure(status: number, tokenUsed: string | null) {
+  return status === 401 || (status === 403 && isExpiredByClock(tokenUsed));
+}
+
+async function readErrorMessage(response: Response, fallback: string): Promise<string> {
+  try {
+    const body = (await response.json()) as { message?: unknown };
+    if (typeof body?.message === "string" && body.message.trim()) return body.message;
+  } catch {
+    // ignore JSON parse errors
+  }
+  return fallback;
+}
+
+const SERVER_ERROR_MESSAGE = "The server couldn't complete this action. Please try again.";
+
 async function request<T>(
   path: string,
   options: RequestInit = {},
   auth = true,
 ): Promise<T> {
-  const headers = new Headers(options.headers);
-
-  if (!(options.body instanceof FormData)) {
-    headers.set("Content-Type", "application/json");
-  }
-
-  if (auth) {
-    const token = useAuthStore.getState().accessToken;
+  const send = async (token: string | null) => {
+    const headers = new Headers(options.headers);
+    if (!(options.body instanceof FormData)) {
+      headers.set("Content-Type", "application/json");
+    }
     if (token) {
       headers.set("Authorization", `Bearer ${token}`);
     }
+    return fetch(`${API_URL}${path}`, { ...options, headers });
+  };
+
+  let token = auth ? await getValidAccessToken() : null;
+  let response = await send(token);
+
+  if (auth && looksLikeAuthFailure(response.status, token) && useAuthStore.getState().refreshToken) {
+    const refreshed = await refreshAccessToken();
+    if (refreshed) {
+      token = refreshed;
+      response = await send(refreshed);
+    }
   }
 
-  const response = await fetch(`${API_URL}${path}`, { ...options, headers });
-
   if (!response.ok) {
-    let message = "Request failed";
-    try {
-      const body = await response.json();
-      if (body?.message) message = body.message;
-    } catch {
-      // ignore JSON parse errors
+    if (auth && looksLikeAuthFailure(response.status, token)) {
+      useAuthStore.getState().clearAuth();
+      throw new ApiError("Your session has expired. Please sign in again.", response.status);
     }
-    throw new Error(message);
+    const fallback = response.status >= 500 || response.status === 403 ? SERVER_ERROR_MESSAGE : "Request failed";
+    throw new ApiError(await readErrorMessage(response, fallback), response.status);
   }
 
   if (response.status === 204) {
     return undefined as T;
   }
 
-  return response.json();
+  return response.json() as Promise<T>;
 }
 
 export const api = {
@@ -204,6 +336,9 @@ export const api = {
 
   createAlbum: (title: string) =>
     request<Album>("/albums", { method: "POST", body: JSON.stringify({ title }) }),
+
+  updateAlbum: (albumId: string, body: UpdateAlbumRequest) =>
+    request<Album>(`/albums/${albumId}`, { method: "PATCH", body: JSON.stringify(body) }),
 
   deleteAlbum: (albumId: string) =>
     request<void>(`/albums/${albumId}`, { method: "DELETE" }),

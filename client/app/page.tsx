@@ -1,22 +1,28 @@
-"use client";
+import type { Metadata } from "next";
+import { Features } from "@/components/landing/features";
+import { Footer } from "@/components/landing/footer";
+import { Hero } from "@/components/landing/hero";
+import { HowItWorks } from "@/components/landing/how-it-works";
+import { LandingNav } from "@/components/landing/landing-nav";
+import { ProductPreview } from "@/components/landing/product-preview";
 
-import { useEffect } from "react";
-import { useRouter } from "next/navigation";
-import { Spinner } from "@/components/ui/spinner";
-import { useAuth } from "@/hooks/use-auth";
+export const metadata: Metadata = {
+  title: "Pixora · Your memories, beautifully organized",
+  description:
+    "Pixora is a private cloud photo library. Upload photos, organize them into albums, and rediscover your memories.",
+};
 
 export default function HomePage() {
-  const router = useRouter();
-  const { isReady, isLoggedIn } = useAuth();
-
-  useEffect(() => {
-    if (!isReady) return;
-    router.replace(isLoggedIn ? "/photos" : "/login");
-  }, [isReady, isLoggedIn, router]);
-
   return (
-    <div className="flex min-h-full items-center justify-center bg-background text-muted-foreground">
-      <Spinner className="size-6" />
+    <div className="flex min-h-svh flex-col bg-background">
+      <LandingNav />
+      <main className="flex-1">
+        <Hero />
+        <Features />
+        <HowItWorks />
+        <ProductPreview />
+      </main>
+      <Footer />
     </div>
   );
 }

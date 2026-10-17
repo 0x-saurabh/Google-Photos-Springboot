@@ -1,98 +1,39 @@
 "use client";
 
-import { useRef, useState } from "react";
-import { ImagePlus, Upload } from "lucide-react";
+import { useRef } from "react";
+import { ImageUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Progress } from "@/components/ui/progress";
-import { useUploadPhotos } from "@/hooks/use-photos";
+import { useEnqueueUploads } from "@/hooks/use-upload-queue";
+import { ACCEPTED_IMAGE_EXTENSIONS } from "@/lib/photo-upload";
 
-type UploadProgress = {
-  fileName: string;
-  progress: number;
+type PhotoUploadButtonProps = Omit<React.ComponentProps<typeof Button>, "onClick" | "children"> & {
+  label?: string;
 };
 
-export function PhotoUploadButton() {
+/** Opens the system file picker and queues the chosen images for upload. */
+export function PhotoUploadButton({ label = "Upload", ...props }: PhotoUploadButtonProps) {
   const inputRef = useRef<HTMLInputElement>(null);
-  const uploadMutation = useUploadPhotos();
-  const [uploads, setUploads] = useState<UploadProgress[]>([]);
-
-  function handleSelect() {
-    inputRef.current?.click();
-  }
-
-  async function handleFilesSelected(event: React.ChangeEvent<HTMLInputElement>) {
-    const files = Array.from(event.target.files ?? []).filter((file) =>
-      file.type.startsWith("image/"),
-    );
-
-    event.target.value = "";
-
-    if (files.length === 0) {
-      return;
-    }
-
-    setUploads(files.map((file) => ({ fileName: file.name, progress: 0 })));
-
-    try {
-      await uploadMutation.mutateAsync({
-        files,
-        onFileProgress: (fileName, progress) => {
-          setUploads((current) =>
-            current.map((item) =>
-              item.fileName === fileName ? { ...item, progress } : item,
-            ),
-          );
-        },
-      });
-    } catch {
-      // onError in useUploadPhotos already shows a toast
-    } finally {
-      setUploads([]);
-    }
-  }
+  const enqueue = useEnqueueUploads();
 
   return (
     <>
       <input
         ref={inputRef}
         type="file"
-        accept="image/*"
+        accept={`image/*,${ACCEPTED_IMAGE_EXTENSIONS}`}
         multiple
-        className="hidden"
-        onChange={handleFilesSelected}
+        className="sr-only"
+        tabIndex={-1}
+        aria-hidden="true"
+        onChange={(event) => {
+          enqueue(event.target.files);
+          event.target.value = "";
+        }}
       />
-
-      <Button onClick={handleSelect} disabled={uploadMutation.isPending}>
-        {uploadMutation.isPending ? (
-          <>
-            <Upload className="size-4" />
-            Uploading...
-          </>
-        ) : (
-          <>
-            <ImagePlus className="size-4" />
-            Upload photos
-          </>
-        )}
+      <Button onClick={() => inputRef.current?.click()} {...props}>
+        <ImageUp data-icon="inline-start" />
+        {label}
       </Button>
-
-      {uploads.length > 0 && (
-        <div className="fixed bottom-4 right-4 z-50 w-[min(100vw-2rem,22rem)] space-y-3 rounded-2xl border border-border/70 bg-card/95 p-4 shadow-xl backdrop-blur-md">
-          <div className="flex items-center gap-2 text-sm font-medium text-foreground">
-            <Upload className="size-4" />
-            Uploading {uploads.length} file{uploads.length === 1 ? "" : "s"}
-          </div>
-          {uploads.map((upload) => (
-            <div key={upload.fileName} className="space-y-1.5">
-              <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
-                <span className="truncate">{upload.fileName}</span>
-                <span className="shrink-0">{upload.progress}%</span>
-              </div>
-              <Progress value={upload.progress} />
-            </div>
-          ))}
-        </div>
-      )}
     </>
   );
 }

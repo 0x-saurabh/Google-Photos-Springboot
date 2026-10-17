@@ -14,8 +14,10 @@ type AuthState = {
   refreshToken: string | null;
   user: User | null;
   isReady: boolean;
+  /** True right after the user chose to sign out, so guards send them home instead of to login. */
+  signedOut: boolean;
   setAuth: (auth: AuthResponse) => void;
-  clearAuth: () => void;
+  clearAuth: (options?: { signedOut?: boolean }) => void;
   setReady: () => void;
 };
 
@@ -32,17 +34,20 @@ export const useAuthStore = create<AuthState>()(
       refreshToken: null,
       user: null,
       isReady: false,
+      signedOut: false,
       setAuth: (auth) =>
         set({
           accessToken: auth.accessToken,
           refreshToken: auth.refreshToken,
           user: auth.user,
+          signedOut: false,
         }),
-      clearAuth: () =>
+      clearAuth: (options) =>
         set({
           accessToken: null,
           refreshToken: null,
           user: null,
+          signedOut: options?.signedOut ?? false,
         }),
       setReady: () => set({ isReady: true }),
     }),
