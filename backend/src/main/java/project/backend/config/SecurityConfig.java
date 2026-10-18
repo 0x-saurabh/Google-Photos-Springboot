@@ -14,6 +14,7 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+
 import project.backend.security.JwtAuthenticationFilter;
 
 @Configuration
@@ -22,8 +23,7 @@ public class SecurityConfig {
 
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
 
-    public SecurityConfig(
-            JwtAuthenticationFilter jwtAuthenticationFilter) {
+    public SecurityConfig(JwtAuthenticationFilter jwtAuthenticationFilter) {
         this.jwtAuthenticationFilter = jwtAuthenticationFilter;
     }
 
@@ -48,11 +48,15 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
 
                         // Public authentication endpoints
-                        .requestMatchers("/api/auth/register", "/api/auth/login","/api/auth/refresh").permitAll()
+                        .requestMatchers(
+                                "/auth/**",
+                                "/api/auth/**"
+                        ).permitAll()
+
+                        // Public health endpoint
                         .requestMatchers("/actuator/health").permitAll()
 
-
-                        // All other endpoints require authentication
+                        // All remaining endpoints require authentication
                         .anyRequest().authenticated()
                 )
 
@@ -64,15 +68,15 @@ public class SecurityConfig {
 
         return http.build();
     }
+
     @Bean
-    PasswordEncoder passwordEncoder(){
+    public PasswordEncoder passwordEncoder() {
         return new BCryptPasswordEncoder(12);
     }
+
     @Bean
-    AuthenticationManager authenticationManager(AuthenticationConfiguration configuration) throws Exception{
+    public AuthenticationManager authenticationManager(
+            AuthenticationConfiguration configuration) throws Exception {
         return configuration.getAuthenticationManager();
     }
-
-
-
 }
