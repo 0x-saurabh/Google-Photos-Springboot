@@ -1,7 +1,10 @@
+
 import { useAlbumLockStore } from "@/stores/album-lock-store";
 import { useAuthStore } from "@/stores/auth-store";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "https://google-photos-springboot.onrender.com";
+const API_URL =
+  process.env.NEXT_PUBLIC_API_URL ??
+  "https://google-photos-springboot.onrender.com";
 
 export type User = {
   id: string;
@@ -21,7 +24,9 @@ type AuthResponsePayload = {
   user: User;
 };
 
-function normalizeAuthResponse(payload: AuthResponsePayload): AuthResponse {
+function normalizeAuthResponse(
+  payload: AuthResponsePayload,
+): AuthResponse {
   return {
     accessToken: payload.access_token,
     refreshToken: payload.refresh_token,
@@ -199,7 +204,11 @@ export class ApiError extends Error {
   /** Set on 423 Locked: the PIN-protected album that owns the resource. */
   albumId: string | null;
 
-  constructor(message: string, status: number, albumId: string | null = null) {
+  constructor(
+    message: string,
+    status: number,
+    albumId: string | null = null,
+  ) {
     super(message);
     this.name = "ApiError";
     this.status = status;
@@ -212,11 +221,8 @@ export const HTTP_LOCKED = 423;
 /* ---------------------------------------------------------------------------
  * Session handling
  *
- * The backend issues short-lived access tokens (15 minutes) and rotating
- * refresh tokens. We decode the access token's `exp` claim (no verification is
- * needed for scheduling) and refresh shortly before it expires, or retry once
- * after an unauthenticated response. Refreshes are single-flight so parallel
- * requests share one call; the backend invalidates the old refresh token on use.
+ * The backend issues short-lived access tokens and rotating refresh tokens.
+ * Refreshes are single-flight so parallel requests share one call.
  * ------------------------------------------------------------------------- */
 
 const EXPIRY_SKEW_MS = 30_000;
@@ -225,9 +231,18 @@ function decodeJwtExpiry(token: string): number | null {
   try {
     const [, payload] = token.split(".");
     if (!payload) return null;
-    const normalized = payload.replace(/-/g, "+").replace(/_/g, "/");
-    const json = JSON.parse(atob(normalized)) as { exp?: unknown };
-    return typeof json.exp === "number" ? json.exp * 1000 : null;
+
+    const normalized = payload
+      .replace(/-/g, "+")
+      .replace(/_/g, "/");
+
+    const json = JSON.parse(atob(normalized)) as {
+      exp?: unknown;
+    };
+
+    return typeof json.exp === "number"
+      ? json.exp * 1000
+      : null;
   } catch {
     return null;
   }
@@ -237,52 +252,71 @@ let refreshInFlight: Promise<string | null> | null = null;
 
 function isExpiredByClock(token: string | null): boolean {
   if (!token) return true;
+
   const expiresAt = decodeJwtExpiry(token);
-  return expiresAt !== null && expiresAt - Date.now() <= EXPIRY_SKEW_MS;
+
+  return (
+    expiresAt !== null &&
+    expiresAt - Date.now() <= EXPIRY_SKEW_MS
+  );
 }
 
 /**
- * Exchanges the refresh token for a new pair. Resolves to the new access token,
- * or null when the session is gone. Because the backend rotates refresh tokens,
- * a failure first checks whether another tab already refreshed and reuses that
- * session instead of signing the user out.
+ * Exchanges the refresh token for a new pair.
+ * If another tab has already refreshed, reuse its session where possible.
  */
 async function refreshAccessToken(): Promise<string | null> {
   if (refreshInFlight) return refreshInFlight;
 
   refreshInFlight = (async () => {
-    const { refreshToken, setAuth, clearAuth } = useAuthStore.getState();
+    const { refreshToken, setAuth, clearAuth } =
+      useAuthStore.getState();
+
     if (!refreshToken) return null;
 
     try {
-      const response = await fetch(`${API_URL}/auth/refresh`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ refreshToken }),
-      });
+      const response = await fetch(
+        `${API_URL}/api/auth/refresh`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ refreshToken }),
+        },
+      );
 
       if (response.ok) {
-        const data = normalizeAuthResponse((await response.json()) as AuthResponsePayload);
+        const data = normalizeAuthResponse(
+          (await response.json()) as AuthResponsePayload,
+        );
+
         setAuth(data);
         return data.accessToken;
       }
 
       if (response.status >= 500) {
-        // Backend trouble, not an invalid session: keep what we have.
+        // Backend trouble, not necessarily an invalid session.
         return useAuthStore.getState().accessToken;
       }
 
-      // The refresh token was rejected. Another tab may have rotated it already.
+      // Another tab may already have rotated the refresh token.
       await useAuthStore.persist?.rehydrate?.();
+
       const latest = useAuthStore.getState();
-      if (latest.refreshToken && latest.refreshToken !== refreshToken && !isExpiredByClock(latest.accessToken)) {
+
+      if (
+        latest.refreshToken &&
+        latest.refreshToken !== refreshToken &&
+        !isExpiredByClock(latest.accessToken)
+      ) {
         return latest.accessToken;
       }
 
       clearAuth();
       return null;
     } catch {
-      // Network failure: keep the current session and let the caller surface the error.
+      // Network failure: retain the current session.
       return useAuthStore.getState().accessToken;
     } finally {
       refreshInFlight = null;
@@ -292,38 +326,69 @@ async function refreshAccessToken(): Promise<string | null> {
   return refreshInFlight;
 }
 
-/** Returns a usable access token, refreshing first if it is about to expire. */
+/** Returns a usable access token, refreshing it when necessary. */
 export async function getValidAccessToken(): Promise<string | null> {
-  const { accessToken, refreshToken } = useAuthStore.getState();
+  const { accessToken, refreshToken } =
+    useAuthStore.getState();
+
   if (!accessToken) return null;
-  if (!isExpiredByClock(accessToken) || !refreshToken) return accessToken;
+
+  if (
+    !isExpiredByClock(accessToken) ||
+    !refreshToken
+  ) {
+    return accessToken;
+  }
+
   return refreshAccessToken();
 }
 
-/**
- * Spring Security answers 403 both for a missing/expired token and for the
- * error dispatch of an unhandled server exception. Only treat it as an auth
- * failure when our token is actually stale; otherwise it's a server error.
- */
-function looksLikeAuthFailure(status: number, tokenUsed: string | null) {
-  return status === 401 || (status === 403 && isExpiredByClock(tokenUsed));
+function looksLikeAuthFailure(
+  status: number,
+  tokenUsed: string | null,
+) {
+  return (
+    status === 401 ||
+    (status === 403 && isExpiredByClock(tokenUsed))
+  );
 }
 
-type ErrorBody = { message: string; albumId: string | null };
+type ErrorBody = {
+  message: string;
+  albumId: string | null;
+};
 
-async function readErrorBody(response: Response, fallback: string): Promise<ErrorBody> {
+async function readErrorBody(
+  response: Response,
+  fallback: string,
+): Promise<ErrorBody> {
   try {
-    const body = (await response.json()) as { message?: unknown; albumId?: unknown };
+    const body = (await response.json()) as {
+      message?: unknown;
+      albumId?: unknown;
+    };
+
     return {
-      message: typeof body?.message === "string" && body.message.trim() ? body.message : fallback,
-      albumId: typeof body?.albumId === "string" ? body.albumId : null,
+      message:
+        typeof body?.message === "string" &&
+        body.message.trim()
+          ? body.message
+          : fallback,
+      albumId:
+        typeof body?.albumId === "string"
+          ? body.albumId
+          : null,
     };
   } catch {
-    return { message: fallback, albumId: null };
+    return {
+      message: fallback,
+      albumId: null,
+    };
   }
 }
 
-const SERVER_ERROR_MESSAGE = "The server couldn't complete this action. Please try again.";
+const SERVER_ERROR_MESSAGE =
+  "The server couldn't complete this action. Please try again.";
 
 async function request<T>(
   path: string,
@@ -332,25 +397,42 @@ async function request<T>(
 ): Promise<T> {
   const send = async (token: string | null) => {
     const headers = new Headers(options.headers);
+
     if (!(options.body instanceof FormData)) {
       headers.set("Content-Type", "application/json");
     }
+
     if (token) {
       headers.set("Authorization", `Bearer ${token}`);
     }
-    // Proof of the PINs entered this session, so locked albums open server-side.
-    const albumTokens = useAlbumLockStore.getState().headerValue();
+
+    // Proof of the PINs entered this session for locked albums.
+    const albumTokens =
+      useAlbumLockStore.getState().headerValue();
+
     if (albumTokens) {
       headers.set("X-Album-Token", albumTokens);
     }
-    return fetch(`${API_URL}${path}`, { ...options, headers });
+
+    return fetch(`${API_URL}${path}`, {
+      ...options,
+      headers,
+    });
   };
 
-  let token = auth ? await getValidAccessToken() : null;
+  let token = auth
+    ? await getValidAccessToken()
+    : null;
+
   let response = await send(token);
 
-  if (auth && looksLikeAuthFailure(response.status, token) && useAuthStore.getState().refreshToken) {
+  if (
+    auth &&
+    looksLikeAuthFailure(response.status, token) &&
+    useAuthStore.getState().refreshToken
+  ) {
     const refreshed = await refreshAccessToken();
+
     if (refreshed) {
       token = refreshed;
       response = await send(refreshed);
@@ -358,13 +440,34 @@ async function request<T>(
   }
 
   if (!response.ok) {
-    if (auth && looksLikeAuthFailure(response.status, token)) {
+    if (
+      auth &&
+      looksLikeAuthFailure(response.status, token)
+    ) {
       useAuthStore.getState().clearAuth();
-      throw new ApiError("Your session has expired. Please sign in again.", response.status);
+
+      throw new ApiError(
+        "Your session has expired. Please sign in again.",
+        response.status,
+      );
     }
-    const fallback = response.status >= 500 || response.status === 403 ? SERVER_ERROR_MESSAGE : "Request failed";
-    const body = await readErrorBody(response, fallback);
-    throw new ApiError(body.message, response.status, body.albumId);
+
+    const fallback =
+      response.status >= 500 ||
+      response.status === 403
+        ? SERVER_ERROR_MESSAGE
+        : "Request failed";
+
+    const body = await readErrorBody(
+      response,
+      fallback,
+    );
+
+    throw new ApiError(
+      body.message,
+      response.status,
+      body.albumId,
+    );
   }
 
   if (response.status === 204) {
@@ -374,67 +477,135 @@ async function request<T>(
   return response.json() as Promise<T>;
 }
 
+/* ---------------------------------------------------------------------------
+ * API methods
+ * Authentication routes match AuthController's /api/auth mapping.
+ * Other routes remain as supplied in your original file.
+ * ------------------------------------------------------------------------- */
+
 export const api = {
-  register: async (body: { email: string; password: string; displayName: string }) =>
+  register: async (body: {
+    email: string;
+    password: string;
+    displayName: string;
+  }) =>
     normalizeAuthResponse(
       await request<AuthResponsePayload>(
-        "/auth/register",
-        { method: "POST", body: JSON.stringify(body) },
+        "/api/auth/register",
+        {
+          method: "POST",
+          body: JSON.stringify(body),
+        },
         false,
       ),
     ),
 
-  login: async (body: { email: string; password: string }) =>
+  login: async (body: {
+    email: string;
+    password: string;
+  }) =>
     normalizeAuthResponse(
       await request<AuthResponsePayload>(
-        "/auth/login",
-        { method: "POST", body: JSON.stringify(body) },
+        "/api/auth/login",
+        {
+          method: "POST",
+          body: JSON.stringify(body),
+        },
         false,
       ),
     ),
 
   logout: () => {
-    const refreshToken = useAuthStore.getState().refreshToken;
+    const refreshToken =
+      useAuthStore.getState().refreshToken;
+
     return request<void>(
-      "/auth/logout",
-      { method: "POST", body: JSON.stringify({ refreshToken }) },
+      "/api/auth/logout",
+      {
+        method: "POST",
+        body: JSON.stringify({ refreshToken }),
+      },
       false,
     );
   },
 
-  me: () => request<User>("/auth/me"),
+  me: () => request<User>("/api/auth/me"),
 
-  getPhoto: (photoId: string) => request<Photo>(`/photos/${photoId}`),
+  getPhoto: (photoId: string) =>
+    request<Photo>(`/photos/${photoId}`),
 
-  getPhotos: ({ status = "ACTIVE", page = 0, size = 24, q, sort }: PhotoListParams = {}) => {
-    const params = new URLSearchParams({ status, page: String(page), size: String(size) });
-    if (q && q.trim()) params.set("q", q.trim());
-    if (sort && sort !== "newest") params.set("sort", sort);
-    return request<PageResponse<Photo>>(`/photos?${params.toString()}`);
+  getPhotos: ({
+    status = "ACTIVE",
+    page = 0,
+    size = 24,
+    q,
+    sort,
+  }: PhotoListParams = {}) => {
+    const params = new URLSearchParams({
+      status,
+      page: String(page),
+      size: String(size),
+    });
+
+    if (q && q.trim()) {
+      params.set("q", q.trim());
+    }
+
+    if (sort && sort !== "newest") {
+      params.set("sort", sort);
+    }
+
+    return request<PageResponse<Photo>>(
+      `/photos?${params.toString()}`,
+    );
   },
 
-  getPhotoVersions: (photoId: string) => request<PhotoVersions>(`/photos/${photoId}/versions`),
+  getPhotoVersions: (photoId: string) =>
+    request<PhotoVersions>(
+      `/photos/${photoId}/versions`,
+    ),
 
-  previewEdit: (photoId: string, body: EditRequest) =>
-    request<EditPreviewResponse>(`/photos/${photoId}/edits/preview`, {
-      method: "POST",
-      body: JSON.stringify(body),
-    }),
+  previewEdit: (
+    photoId: string,
+    body: EditRequest,
+  ) =>
+    request<EditPreviewResponse>(
+      `/photos/${photoId}/edits/preview`,
+      {
+        method: "POST",
+        body: JSON.stringify(body),
+      },
+    ),
 
-  applyEdit: (photoId: string, body: EditRequest) =>
-    request<Photo>(`/photos/${photoId}/edits/apply`, {
-      method: "POST",
-      body: JSON.stringify(body),
-    }),
+  applyEdit: (
+    photoId: string,
+    body: EditRequest,
+  ) =>
+    request<Photo>(
+      `/photos/${photoId}/edits/apply`,
+      {
+        method: "POST",
+        body: JSON.stringify(body),
+      },
+    ),
 
   archivePhotos: (photoIds: string[]) =>
-    request<void>("/photos/archive", { method: "POST", body: JSON.stringify({ photoIds }) }),
+    request<void>("/photos/archive", {
+      method: "POST",
+      body: JSON.stringify({ photoIds }),
+    }),
 
   trashPhotos: (photoIds: string[]) =>
-    request<void>("/photos/trash", { method: "POST", body: JSON.stringify({ photoIds }) }),
+    request<void>("/photos/trash", {
+      method: "POST",
+      body: JSON.stringify({ photoIds }),
+    }),
 
   restorePhotos: (photoIds: string[]) =>
-    request<void>("/photos/restore", { method: "POST", body: JSON.stringify({ photoIds }) }),
+    request<void>("/photos/restore", {
+      method: "POST",
+      body: JSON.stringify({ photoIds }),
+    }),
 
   permanentlyDeletePhotos: (photoIds: string[]) =>
     request<void>("/photos/delete-permanent", {
@@ -442,64 +613,133 @@ export const api = {
       body: JSON.stringify({ photoIds }),
     }),
 
-  getAlbums: () => request<Album[]>("/albums"),
+  getAlbums: () =>
+    request<Album[]>("/albums"),
 
-  getAlbum: (albumId: string) => request<Album>(`/albums/${albumId}`),
+  getAlbum: (albumId: string) =>
+    request<Album>(`/albums/${albumId}`),
 
   createAlbum: (title: string) =>
-    request<Album>("/albums", { method: "POST", body: JSON.stringify({ title }) }),
+    request<Album>("/albums", {
+      method: "POST",
+      body: JSON.stringify({ title }),
+    }),
 
-  updateAlbum: (albumId: string, body: UpdateAlbumRequest) =>
-    request<Album>(`/albums/${albumId}`, { method: "PATCH", body: JSON.stringify(body) }),
+  updateAlbum: (
+    albumId: string,
+    body: UpdateAlbumRequest,
+  ) =>
+    request<Album>(`/albums/${albumId}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
 
   deleteAlbum: (albumId: string) =>
-    request<void>(`/albums/${albumId}`, { method: "DELETE" }),
+    request<void>(`/albums/${albumId}`, {
+      method: "DELETE",
+    }),
 
-  getAlbumPhotos: (albumId: string, page = 0, size = 24) =>
-    request<PageResponse<Photo>>(`/albums/${albumId}/photos?page=${page}&size=${size}`),
+  getAlbumPhotos: (
+    albumId: string,
+    page = 0,
+    size = 24,
+  ) =>
+    request<PageResponse<Photo>>(
+      `/albums/${albumId}/photos?page=${page}&size=${size}`,
+    ),
 
-  addPhotosToAlbum: (albumId: string, photoIds: string[]) =>
+  addPhotosToAlbum: (
+    albumId: string,
+    photoIds: string[],
+  ) =>
     request<void>(`/albums/${albumId}/photos`, {
       method: "POST",
       body: JSON.stringify({ photoIds }),
     }),
 
-  removePhotoFromAlbum: (albumId: string, photoId: string) =>
-    request<void>(`/albums/${albumId}/photos/${photoId}`, { method: "DELETE" }),
+  removePhotoFromAlbum: (
+    albumId: string,
+    photoId: string,
+  ) =>
+    request<void>(
+      `/albums/${albumId}/photos/${photoId}`,
+      {
+        method: "DELETE",
+      },
+    ),
 
   lockAlbum: (albumId: string, pin: string) =>
-    request<Album>(`/albums/${albumId}/lock`, { method: "POST", body: JSON.stringify({ pin }) }),
+    request<Album>(`/albums/${albumId}/lock`, {
+      method: "POST",
+      body: JSON.stringify({ pin }),
+    }),
 
-  changeAlbumPin: (albumId: string, currentPin: string, newPin: string) =>
+  changeAlbumPin: (
+    albumId: string,
+    currentPin: string,
+    newPin: string,
+  ) =>
     request<void>(`/albums/${albumId}/lock`, {
       method: "PATCH",
       body: JSON.stringify({ currentPin, newPin }),
     }),
 
-  removeAlbumLock: (albumId: string, proof: { pin?: string; password?: string }) =>
-    request<Album>(`/albums/${albumId}/lock/remove`, { method: "POST", body: JSON.stringify(proof) }),
+  removeAlbumLock: (
+    albumId: string,
+    proof: {
+      pin?: string;
+      password?: string;
+    },
+  ) =>
+    request<Album>(
+      `/albums/${albumId}/lock/remove`,
+      {
+        method: "POST",
+        body: JSON.stringify(proof),
+      },
+    ),
 
-  unlockAlbum: (albumId: string, pin: string) =>
-    request<AlbumUnlockResponse>(`/albums/${albumId}/unlock`, {
-      method: "POST",
-      body: JSON.stringify({ pin }),
-    }),
+  unlockAlbum: (
+    albumId: string,
+    pin: string,
+  ) =>
+    request<AlbumUnlockResponse>(
+      `/albums/${albumId}/unlock`,
+      {
+        method: "POST",
+        body: JSON.stringify({ pin }),
+      },
+    ),
 
-  previewAiTransform: (photoId: string, body: AiTransformRequest) =>
-    request<AiTransformPreviewResponse>(`/photos/${photoId}/ai/preview`, {
-      method: "POST",
-      body: JSON.stringify(body),
-    }),
+  previewAiTransform: (
+    photoId: string,
+    body: AiTransformRequest,
+  ) =>
+    request<AiTransformPreviewResponse>(
+      `/photos/${photoId}/ai/preview`,
+      {
+        method: "POST",
+        body: JSON.stringify(body),
+      },
+    ),
 
-  applyAiTransform: (photoId: string, body: AiTransformRequest) =>
-    request<Photo>(`/photos/${photoId}/ai/apply`, {
-      method: "POST",
-      body: JSON.stringify(body),
-    }),
+  applyAiTransform: (
+    photoId: string,
+    body: AiTransformRequest,
+  ) =>
+    request<Photo>(
+      `/photos/${photoId}/ai/apply`,
+      {
+        method: "POST",
+        body: JSON.stringify(body),
+      },
+    ),
 
-  getStorageUsage: () => request<StorageUsageResponse>("/library/storage"),
+  getStorageUsage: () =>
+    request<StorageUsageResponse>("/library/storage"),
 
-  getImageKitAssets: () => request<ImageKitAsset[]>("/library/imagekit-assets"),
+  getImageKitAssets: () =>
+    request<ImageKitAsset[]>("/library/imagekit-assets"),
 
   importImageKitAssets: (imagekitFileIds: string[]) =>
     request<Photo[]>("/library/import", {
