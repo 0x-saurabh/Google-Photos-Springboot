@@ -28,3 +28,6 @@ client/.git-backup/
 # OS files
 .DS_Store
 Thumbs.db
+
+# Local configuration backups
+**/application.properties.backup
