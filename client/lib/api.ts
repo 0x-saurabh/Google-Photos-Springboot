@@ -1,7 +1,7 @@
 import { useAlbumLockStore } from "@/stores/album-lock-store";
 import { useAuthStore } from "@/stores/auth-store";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080/api";
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "https://google-photos-springboot.onrender.com";
 
 export type User = {
   id: string;
